@@ -581,6 +581,7 @@
   }
   async function publish(type, payload) {
     if (!state.connected || !state.channel) return;
+    if (type === "media_state" && state.settings.syncPlaybackProgress === false) return;
     let normalizedPayload = payload;
     if (type === "media_state" && payload && typeof payload === "object") {
       normalizedPayload = {
@@ -628,6 +629,9 @@
   async function applyRemoteSync(envelope) {
     if (shouldIgnoreEnvelope(envelope)) return;
     const payload = envelope.payload || {};
+    if (envelope.type === "media_state" && (state.settings.syncPlaybackProgress === false || payload.syncProgress === false)) {
+      return;
+    }
     if (envelope.type === "playlist_request" && state.onRemotePlaylistRequest) {
       const handled = await state.onRemotePlaylistRequest(payload, envelope);
       if (handled) return;
@@ -1061,6 +1065,7 @@
     stopRuntimeLoops();
     state.syncTimer = window.setInterval(async () => {
       if (!state.connected || !state.settings.isHost) return;
+      if (state.settings.syncPlaybackProgress === false) return;
       const mediaState = readLocalMediaState();
       if (!mediaState) return;
       await publish("media_state", mediaState);
@@ -1904,7 +1909,9 @@
         playbackMode: normalized,
         at: Date.now()
       });
-      await publish("media_state", computeBilibiliSyntheticState());
+      if (state.settings.syncPlaybackProgress !== false) {
+        await publish("media_state", computeBilibiliSyntheticState());
+      }
     }
     if (statusHint) {
       updatePlaybackUi(statusHint);
@@ -2107,12 +2114,14 @@
     activeVideos = Array.from(byBvid.values()).sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0));
   }
   function buildPlaylistStatePayload(targetMemberId = "") {
+    const syncEnabled = state.settings.syncPlaybackProgress !== false;
     return {
       targetMemberId: targetMemberId || "",
       videos: activeVideos.map((video) => ({ ...video })),
       playbackMode: normalizePlaybackMode(state.settings.playbackMode),
       adminMemberIds: [...state.roomAdminMemberIds],
-      mediaState: computeBilibiliSyntheticState(),
+      mediaState: syncEnabled ? computeBilibiliSyntheticState() : null,
+      syncProgress: syncEnabled,
       generatedAt: Date.now()
     };
   }
@@ -3968,7 +3977,7 @@
       void hydrateBilibiliDuration(sourceUrl).then((duration) => {
         if (!Number.isFinite(Number(duration)) || Number(duration) <= 0) return;
         updatePlaybackUi();
-        if (state.settings.isHost) {
+        if (state.settings.isHost && state.settings.syncPlaybackProgress !== false) {
           void publish("media_state", computeBilibiliSyntheticState());
         }
       }).catch((error) => {
@@ -4017,7 +4026,7 @@
       playerContainer.innerHTML = `<iframe src="${playerUrl}" allow="autoplay; encrypted-media" allowfullscreen></iframe>`;
     }
     updatePlaybackUi(statusHint);
-    if (publishState && state.settings.isHost) {
+    if (publishState && state.settings.isHost && state.settings.syncPlaybackProgress !== false) {
       await publish("media_state", computeBilibiliSyntheticState());
     }
     return true;
@@ -4113,12 +4122,14 @@
       }
       refreshHostUiPrivileges();
       updateVideoList();
-      if (payload.mediaState) {
+      const localSyncProgress = state.settings.syncPlaybackProgress !== false;
+      const payloadSyncProgress = payload.syncProgress !== false;
+      if (payload.mediaState && localSyncProgress && payloadSyncProgress) {
         await applyRoomPlaybackState(payload.mediaState, {
           publishState: false,
           reason: "remote-playlist-state",
           forceReload: false,
-          syncProgress: state.settings.syncPlaybackProgress !== false,
+          syncProgress: true,
           statusHint: "sync"
         });
       }
@@ -4133,6 +4144,9 @@
     };
     state.onRemoteMediaState = async (payload, envelope) => {
       if (!payload) return false;
+      if (state.settings.syncPlaybackProgress === false || payload.syncProgress === false) {
+        return true;
+      }
       const sourceUrl = payload.sourceUrl || payload.src || (payload.bvid ? `https://www.bilibili.com/video/${payload.bvid}` : "");
       const isBilibili = payload.mediaKind === "bilibili" || /bilibili\.com|b23\.tv|BV[0-9A-Za-z]{10,}/i.test(sourceUrl);
       if (!isBilibili || !sourceUrl) return false;
@@ -4215,6 +4229,7 @@
     updatePlaybackUi();
     void (async () => {
       try {
+        if (state.settings.syncPlaybackProgress === false) return;
         const snapshot = await fetchCurrentRoomPlaybackState();
         if (!snapshot) return;
         await applyRoomPlaybackState(snapshot, {
@@ -4248,6 +4263,7 @@
     });
   }
   async function publishLocalMediaState() {
+    if (state.settings.syncPlaybackProgress === false) return;
     const mediaState = readLocalMediaState();
     if (!mediaState) return;
     await publish("media_state", mediaState);

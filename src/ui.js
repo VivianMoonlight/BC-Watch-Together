@@ -938,7 +938,9 @@ async function setPlaybackMode(nextMode, options = {}) {
             playbackMode: normalized,
             at: Date.now(),
         });
-        await publish('media_state', computeBilibiliSyntheticState());
+        if (state.settings.syncPlaybackProgress !== false) {
+            await publish('media_state', computeBilibiliSyntheticState());
+        }
     }
 
     if (statusHint) {
@@ -1179,12 +1181,14 @@ function mergeActiveVideos(videos) {
 }
 
 function buildPlaylistStatePayload(targetMemberId = '') {
+    const syncEnabled = state.settings.syncPlaybackProgress !== false;
     return {
         targetMemberId: targetMemberId || '',
         videos: activeVideos.map((video) => ({ ...video })),
         playbackMode: normalizePlaybackMode(state.settings.playbackMode),
         adminMemberIds: [...state.roomAdminMemberIds],
-        mediaState: computeBilibiliSyntheticState(),
+        mediaState: syncEnabled ? computeBilibiliSyntheticState() : null,
+        syncProgress: syncEnabled,
         generatedAt: Date.now(),
     };
 }
@@ -3187,7 +3191,7 @@ async function applyRoomPlaybackState(nextState, options = {}) {
             .then((duration) => {
                 if (!Number.isFinite(Number(duration)) || Number(duration) <= 0) return;
                 updatePlaybackUi();
-                if (state.settings.isHost) {
+                if (state.settings.isHost && state.settings.syncPlaybackProgress !== false) {
                     void publish('media_state', computeBilibiliSyntheticState());
                 }
             })
@@ -3241,7 +3245,7 @@ async function applyRoomPlaybackState(nextState, options = {}) {
 
     updatePlaybackUi(statusHint);
 
-    if (publishState && state.settings.isHost) {
+    if (publishState && state.settings.isHost && state.settings.syncPlaybackProgress !== false) {
         await publish('media_state', computeBilibiliSyntheticState());
     }
 
@@ -3355,12 +3359,14 @@ function initializeRoomMode(playerContainer, videoList, statusEl) {
         refreshHostUiPrivileges();
         updateVideoList();
 
-        if (payload.mediaState) {
+        const localSyncProgress = state.settings.syncPlaybackProgress !== false;
+        const payloadSyncProgress = payload.syncProgress !== false;
+        if (payload.mediaState && localSyncProgress && payloadSyncProgress) {
             await applyRoomPlaybackState(payload.mediaState, {
                 publishState: false,
                 reason: 'remote-playlist-state',
                 forceReload: false,
-                syncProgress: state.settings.syncPlaybackProgress !== false,
+                syncProgress: true,
                 statusHint: 'sync',
             });
         }
@@ -3379,6 +3385,10 @@ function initializeRoomMode(playerContainer, videoList, statusEl) {
 
     state.onRemoteMediaState = async (payload, envelope) => {
         if (!payload) return false;
+
+        if (state.settings.syncPlaybackProgress === false || payload.syncProgress === false) {
+            return true;
+        }
 
         const sourceUrl = payload.sourceUrl || payload.src || (payload.bvid ? `https://www.bilibili.com/video/${payload.bvid}` : '');
         const isBilibili = payload.mediaKind === 'bilibili' || /bilibili\.com|b23\.tv|BV[0-9A-Za-z]{10,}/i.test(sourceUrl);
@@ -3481,6 +3491,7 @@ function initializeRoomMode(playerContainer, videoList, statusEl) {
     // Hydrate the latest room snapshot so late joiners see the currently playing video immediately.
     void (async () => {
         try {
+            if (state.settings.syncPlaybackProgress === false) return;
             const snapshot = await fetchCurrentRoomPlaybackState();
             if (!snapshot) return;
 

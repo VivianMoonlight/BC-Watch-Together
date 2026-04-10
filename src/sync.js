@@ -83,6 +83,7 @@ export function buildEnvelope(type, payload) {
 
 export async function publish(type, payload) {
     if (!state.connected || !state.channel) return;
+    if (type === 'media_state' && state.settings.syncPlaybackProgress === false) return;
 
     let normalizedPayload = payload;
     if (type === 'media_state' && payload && typeof payload === 'object') {
@@ -137,6 +138,11 @@ export async function applyRemoteSync(envelope) {
     if (shouldIgnoreEnvelope(envelope)) return;
 
     const payload = envelope.payload || {};
+
+    if (envelope.type === 'media_state'
+        && (state.settings.syncPlaybackProgress === false || payload.syncProgress === false)) {
+        return;
+    }
 
     if (envelope.type === 'playlist_request' && state.onRemotePlaylistRequest) {
         const handled = await state.onRemotePlaylistRequest(payload, envelope);
@@ -723,6 +729,7 @@ export function startRuntimeLoops(client) {
 
     state.syncTimer = window.setInterval(async () => {
         if (!state.connected || !state.settings.isHost) return;
+        if (state.settings.syncPlaybackProgress === false) return;
         const mediaState = readLocalMediaState();
         if (!mediaState) return;
         await publish('media_state', mediaState);

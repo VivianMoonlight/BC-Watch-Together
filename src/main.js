@@ -1,4 +1,4 @@
-import { setLocalChangeNotifier, logStatus } from './state.js';
+import { setLocalChangeNotifier, logStatus, state } from './state.js';
 import { bindMediaHooks, readLocalMediaState } from './media.js';
 import { createUI } from './ui.js';
 import { publish } from './sync.js';
@@ -15,6 +15,7 @@ function waitForGameReady() {
 }
 
 async function publishLocalMediaState() {
+    if (state.settings.syncPlaybackProgress === false) return;
     const mediaState = readLocalMediaState();
     if (!mediaState) return;
     await publish('media_state', mediaState);
