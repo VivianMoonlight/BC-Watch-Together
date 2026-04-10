@@ -3995,13 +3995,15 @@
     const playerContainer = (_a = windowInstance == null ? void 0 : windowInstance.content) == null ? void 0 : _a.querySelector("#bclt-player-container");
     const iframeEl = (_b = windowInstance == null ? void 0 : windowInstance.content) == null ? void 0 : _b.querySelector("#bclt-player-container iframe");
     if (!playerContainer) return false;
+    const highQualityMode = isHighQualityTabModeEnabled();
     const thresholdSeconds = Math.max(0.1, Number(state.settings.driftThresholdMs || 800) / 1e3);
     const driftSeconds = Math.abs(targetTime - current.currentTime);
     const sourceChanged = normalizeBilibiliSourceForSync(sourceUrl) !== normalizeBilibiliSourceForSync(current.sourceUrl);
     const pausedChanged = incomingPaused !== current.paused;
     const rateChanged = incomingRate !== current.playbackRate;
     const isRemoteSyncReason = reason === "remote-sync" || reason === "remote-playlist-state";
-    const shouldReloadByState = forceReload || !iframeEl || sourceChanged || pausedChanged || rateChanged;
+    const missingInlineIframe = !highQualityMode && !iframeEl;
+    const shouldReloadByState = forceReload || missingInlineIframe || sourceChanged || pausedChanged || rateChanged;
     const shouldReloadByDrift = syncProgress && driftSeconds > thresholdSeconds;
     let shouldReload = shouldReloadByState || shouldReloadByDrift;
     setBilibiliSyntheticState({
@@ -4023,7 +4025,7 @@
         console.warn("[BCLT] duration hydration failed:", error);
       });
     }
-    if (isHighQualityTabModeEnabled()) {
+    if (highQualityMode) {
       if (!shouldReloadByState && shouldReloadByDrift && isRemoteSyncReason) {
         const hqDriftThreshold = Math.max(HQ_TAB_REMOTE_DRIFT_THRESHOLD_SECONDS, thresholdSeconds);
         const now = Date.now();

@@ -3184,6 +3184,7 @@ async function applyRoomPlaybackState(nextState, options = {}) {
     const playerContainer = windowInstance?.content?.querySelector('#bclt-player-container');
     const iframeEl = windowInstance?.content?.querySelector('#bclt-player-container iframe');
     if (!playerContainer) return false;
+    const highQualityMode = isHighQualityTabModeEnabled();
 
     const thresholdSeconds = Math.max(0.1, Number(state.settings.driftThresholdMs || 800) / 1000);
     const driftSeconds = Math.abs(targetTime - current.currentTime);
@@ -3191,7 +3192,8 @@ async function applyRoomPlaybackState(nextState, options = {}) {
     const pausedChanged = incomingPaused !== current.paused;
     const rateChanged = incomingRate !== current.playbackRate;
     const isRemoteSyncReason = reason === 'remote-sync' || reason === 'remote-playlist-state';
-    const shouldReloadByState = forceReload || !iframeEl || sourceChanged || pausedChanged || rateChanged;
+    const missingInlineIframe = !highQualityMode && !iframeEl;
+    const shouldReloadByState = forceReload || missingInlineIframe || sourceChanged || pausedChanged || rateChanged;
     const shouldReloadByDrift = syncProgress && driftSeconds > thresholdSeconds;
     let shouldReload = shouldReloadByState || shouldReloadByDrift;
 
@@ -3218,7 +3220,7 @@ async function applyRoomPlaybackState(nextState, options = {}) {
             });
     }
 
-    if (isHighQualityTabModeEnabled()) {
+    if (highQualityMode) {
         if (!shouldReloadByState && shouldReloadByDrift && isRemoteSyncReason) {
             const hqDriftThreshold = Math.max(HQ_TAB_REMOTE_DRIFT_THRESHOLD_SECONDS, thresholdSeconds);
             const now = Date.now();
