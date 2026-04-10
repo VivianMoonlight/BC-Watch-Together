@@ -1,0 +1,21 @@
+{
+  "name": "bc-listen-together",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "clean": "node scripts/clean.mjs",
+    "check:release": "node scripts/verify-release.mjs",
+    "dev": "vite",
+    "build": "run-s check:release build:bundle",
+    "build:bundle": "vite build",
+    "pack": "node scripts/pack-release.mjs",
+    "pack:local": "run-s clean build pack",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "npm-run-all": "^4.1.5",
+    "vite": "^5.4.11",
+    "vite-plugin-monkey": "^4.0.6"
+  }
+}

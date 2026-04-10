@@ -1,0 +1,10 @@
+{
+  "name": "bc-listen-together",
+  "version": "0.2.0",
+  "generatedAt": "2026-04-10T11:22:07.400Z",
+  "artifacts": [
+    "BCListenTogether-v0.2.0.user.js",
+    "BCListenTogetherLoader-v0.2.0.user.js",
+    "SHA256SUMS.txt"
+  ]
+}
