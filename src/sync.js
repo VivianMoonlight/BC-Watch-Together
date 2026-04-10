@@ -6,11 +6,53 @@ const HARDWIRED_SUPABASE_URL = 'https://ikzntirwphumwkekflek.supabase.co';
 const HARDWIRED_SUPABASE_ANON_KEY = 'sb_publishable_0cwF0A-zVDkg0IGRQYrUSQ_nEIPsFBU';
 let lastPasscodeMismatchWarnAt = 0;
 
+const SUPABASE_UMD_URLS = [
+    'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js',
+    'https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js',
+];
+
+function appendScript(url) {
+    return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = url;
+        script.async = false;
+        script.crossOrigin = 'anonymous';
+        script.onload = () => {
+            script.remove();
+            resolve();
+        };
+        script.onerror = () => {
+            script.remove();
+            reject(new Error(`Failed to load ${url}`));
+        };
+        document.head.appendChild(script);
+    });
+}
+
+async function ensureSupabaseRuntime() {
+    if (globalThis.supabase && typeof globalThis.supabase.createClient === 'function') {
+        return globalThis.supabase;
+    }
+
+    for (const url of SUPABASE_UMD_URLS) {
+        try {
+            await appendScript(url);
+            if (globalThis.supabase && typeof globalThis.supabase.createClient === 'function') {
+                return globalThis.supabase;
+            }
+        } catch (error) {
+            console.warn('[BCWT] Failed to load Supabase runtime from', url, error);
+        }
+    }
+
+    throw new Error('Supabase runtime failed to load from all sources.');
+}
+
 export async function getSupabaseClient() {
     if (state.supabase) return state.supabase;
 
-    const mod = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm');
-    state.supabase = mod.createClient(HARDWIRED_SUPABASE_URL, HARDWIRED_SUPABASE_ANON_KEY, {
+    const supabaseRuntime = await ensureSupabaseRuntime();
+    state.supabase = supabaseRuntime.createClient(HARDWIRED_SUPABASE_URL, HARDWIRED_SUPABASE_ANON_KEY, {
         auth: {
             persistSession: false,
             autoRefreshToken: false,
