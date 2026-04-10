@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         BC Listen Together Loader
+// @name         BC Watch Together Loader
 // @namespace    https://github.com/VivianMoonlight
 // @version      0.2.0
-// @description  Loader script for BC Listen Together remote entry.
+// @description  Loader script for BC Watch Together remote entry.
 // @author       VivianMoonlight
 // @match        https://bondageprojects.elementfx.com/*
 // @match        https://www.bondageprojects.elementfx.com/*

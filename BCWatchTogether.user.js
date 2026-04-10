@@ -1,9 +1,9 @@
 // ==UserScript==
-// @name         BC Listen Together
+// @name         BC Watch Together
 // @namespace    https://github.com/VivianMoonlight
 // @version      0.2.0
 // @author       VivianMoonlight
-// @description  Listen/watch together in BC chat rooms via Supabase Realtime.
+// @description  Watch together in BC chat rooms via Supabase Realtime.
 // @match        https://bondageprojects.elementfx.com/*
 // @match        https://www.bondageprojects.elementfx.com/*
 // @match        https://bondage-europe.com/*

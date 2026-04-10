@@ -18,10 +18,10 @@ export default defineConfig({
         monkey({
             entry: 'src/userscript-entry.js',
             userscript: {
-                name: 'BC Listen Together',
+                name: 'BC Watch Together',
                 namespace: 'https://github.com/VivianMoonlight',
                 version: packageJson.version,
-                description: 'Listen/watch together in BC chat rooms via Supabase Realtime.',
+                description: 'Watch together in BC chat rooms via Supabase Realtime.',
                 author: 'VivianMoonlight',
                 match: [
                     'https://bondageprojects.elementfx.com/*',
