@@ -111,6 +111,7 @@ export function normalizeBilibiliSourceUrl(input) {
         if (page > 1) {
             url.searchParams.set('p', String(page));
         }
+        url.searchParams.set('t', '1');
         return url.toString();
     }
 
@@ -120,9 +121,10 @@ export function normalizeBilibiliSourceUrl(input) {
 
     try {
         const url = new URL(text);
-        ['t', 'autoplay', 'vd_source', 'spm_id_from', 'from_spmid', 'share_source', 'share_medium'].forEach((key) => {
+        ['autoplay', 'vd_source', 'spm_id_from', 'from_spmid', 'share_source', 'share_medium'].forEach((key) => {
             url.searchParams.delete(key);
         });
+        url.searchParams.set('t', '1');
         url.hash = '';
         return url.toString();
     } catch (error) {

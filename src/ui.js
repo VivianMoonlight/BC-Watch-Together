@@ -705,13 +705,13 @@ function normalizeBilibiliSourceForSync(sourceUrl) {
 
     const bvid = parseBilibiliBvid(source);
     if (bvid) {
-        return `bvid:${String(bvid)}:p${readBilibiliPageFromUrl(source)}`;
+        return `bvid:${String(bvid)}:p${readBilibiliPageFromUrl(source)}:t1`;
     }
 
     try {
         const url = new URL(source);
-        url.searchParams.delete('t');
         url.searchParams.delete('autoplay');
+        url.searchParams.set('t', '1');
         url.hash = '';
         return url.toString();
     } catch (error) {

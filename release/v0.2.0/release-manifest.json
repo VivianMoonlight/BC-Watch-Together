@@ -1,7 +1,7 @@
 {
   "name": "bc-watch-together",
   "version": "0.2.0",
-  "generatedAt": "2026-04-10T14:15:49.899Z",
+  "generatedAt": "2026-04-10T14:25:24.307Z",
   "artifacts": [
     "BCWatchTogether-v0.2.0.user.js",
     "BCWatchTogetherLoader-v0.2.0.user.js",
