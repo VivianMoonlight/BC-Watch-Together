@@ -538,6 +538,11 @@
   const HARDWIRED_SUPABASE_URL = "https://ikzntirwphumwkekflek.supabase.co";
   const HARDWIRED_SUPABASE_ANON_KEY = "sb_publishable_0cwF0A-zVDkg0IGRQYrUSQ_nEIPsFBU";
   let lastPasscodeMismatchWarnAt = 0;
+  let hostOfflineFallbackInFlight = false;
+  let hostOfflineFallbackLastAttemptAt = 0;
+  const HOST_OFFLINE_FALLBACK_MS = 3e4;
+  const HOST_FALLBACK_ACTIVE_WINDOW_MS = 6e4;
+  const HOST_FALLBACK_COOLDOWN_MS = 12e3;
   const SUPABASE_UMD_URLS = [
     "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js",
     "https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"
@@ -1087,6 +1092,88 @@
       }
     }
   }
+  function readMemberLastSeenMs(member) {
+    const ts = new Date((member == null ? void 0 : member.lastSeenAt) || "").getTime();
+    return Number.isFinite(ts) ? ts : NaN;
+  }
+  function sortFallbackCandidates(a, b) {
+    const aIsAdmin = state.roomAdminMemberIds.includes(a.memberId) ? 1 : 0;
+    const bIsAdmin = state.roomAdminMemberIds.includes(b.memberId) ? 1 : 0;
+    if (aIsAdmin !== bIsAdmin) return bIsAdmin - aIsAdmin;
+    if (a.lastSeenMs !== b.lastSeenMs) return b.lastSeenMs - a.lastSeenMs;
+    return String(a.memberId).localeCompare(String(b.memberId));
+  }
+  async function maybePromoteSelfOnHostOffline(client) {
+    if (state.settings.isHost) return;
+    if (!state.settings.roomId || !state.connected || !state.channel) return;
+    const now = Date.now();
+    if (hostOfflineFallbackInFlight) return;
+    if (now - hostOfflineFallbackLastAttemptAt < HOST_FALLBACK_COOLDOWN_MS) return;
+    const currentHostId = String(state.settings.roomHostMemberId || "").trim();
+    if (!currentHostId) return;
+    hostOfflineFallbackInFlight = true;
+    hostOfflineFallbackLastAttemptAt = now;
+    try {
+      const allMembers = await fetchRoomMembers({
+        includeStale: true,
+        excludeSelf: false,
+        activeWindowMs: HOST_FALLBACK_ACTIVE_WINDOW_MS
+      });
+      const hostMember = allMembers.find((member) => member.memberId === currentHostId);
+      const hostLastSeenMs = readMemberLastSeenMs(hostMember);
+      const hostLooksOffline = !hostMember || !Number.isFinite(hostLastSeenMs) || now - hostLastSeenMs > HOST_OFFLINE_FALLBACK_MS;
+      if (!hostLooksOffline) return;
+      const activeCutoff = now - HOST_FALLBACK_ACTIVE_WINDOW_MS;
+      const activeCandidates = allMembers.map((member) => ({ ...member, lastSeenMs: readMemberLastSeenMs(member) })).filter((member) => Number.isFinite(member.lastSeenMs) && member.lastSeenMs >= activeCutoff).sort(sortFallbackCandidates);
+      if (!activeCandidates.length) return;
+      const electedCandidate = activeCandidates[0];
+      if (!electedCandidate || electedCandidate.memberId !== memberId()) return;
+      const selfId = memberId();
+      const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+      const { data: claimRows, error: claimError } = await client.from("bclt_rooms").update({
+        host_member_id: selfId,
+        updated_at: nowIso
+      }).eq("room_id", state.settings.roomId).eq("host_member_id", currentHostId).select("room_id, host_member_id");
+      if (claimError) {
+        console.warn("[BCLT] host offline fallback claim failed:", claimError.message);
+        return;
+      }
+      if (!Array.isArray(claimRows) || claimRows.length === 0) {
+        return;
+      }
+      const { error: roomStateError } = await client.from("bclt_room_states").update({ host_member_id: selfId, updated_at: nowIso }).eq("room_id", state.settings.roomId).eq("host_member_id", currentHostId);
+      if (roomStateError) {
+        console.warn("[BCLT] host offline fallback room state update failed:", roomStateError.message);
+      }
+      const { error: clearHostError } = await client.from("bclt_room_members").update({ is_host: false }).eq("room_id", state.settings.roomId);
+      if (clearHostError) {
+        console.warn("[BCLT] host offline fallback clear host flag failed:", clearHostError.message);
+      }
+      const { error: setHostError } = await client.from("bclt_room_members").update({ is_host: true, last_seen_at: nowIso }).eq("room_id", state.settings.roomId).eq("member_id", selfId);
+      if (setHostError) {
+        console.warn("[BCLT] host offline fallback set host flag failed:", setHostError.message);
+      }
+      state.settings.roomHostMemberId = selfId;
+      state.settings.isHost = true;
+      state.currentRoomHostName = effectiveDisplayName();
+      state.roomAdminMemberIds = state.roomAdminMemberIds.filter((id) => String(id || "").trim() !== selfId);
+      saveSettings();
+      await publish("room_control", {
+        action: "ownership_transferred",
+        roomId: state.settings.roomId,
+        previousHostMemberId: currentHostId,
+        newHostMemberId: selfId,
+        newHostDisplayName: effectiveDisplayName(),
+        adminMemberIds: [...state.roomAdminMemberIds],
+        at: Date.now()
+      });
+      logStatus("Host offline detected. Fallback promoted you to host.");
+    } catch (error) {
+      console.warn("[BCLT] host offline fallback failed:", error);
+    } finally {
+      hostOfflineFallbackInFlight = false;
+    }
+  }
   function startRuntimeLoops(client) {
     stopRuntimeLoops();
     state.syncTimer = window.setInterval(async () => {
@@ -1108,6 +1195,8 @@
       await upsertRoomMember(client);
       if (state.settings.isHost) {
         await touchRoom(client);
+      } else {
+        await maybePromoteSelfOnHostOffline(client);
       }
     }, 1e4);
   }
@@ -1405,6 +1494,7 @@
       host_only_change_mode: "仅房主可切换播放模式",
       host_only_permission: "仅房主可管理房主/管理员权限",
       host_admin_add_video: "仅房主/管理员可添加视频",
+      host_admin_import_playlist: "仅房主/管理员可导入歌单",
       host_only_skip: "仅房主可切歌",
       skip_to_next: "切到下一首",
       failed_build_watch_url: "构建 Bilibili 播放链接失败。",
@@ -1443,6 +1533,8 @@
       player_shared_videos: "共享视频",
       player_add_placeholder: "粘贴 Bilibili 链接或 BV 号",
       player_add_btn: "+ 添加",
+      player_import_btn: "导入 JSON",
+      player_export_btn: "导出 JSON",
       player_mode_title: "播放模式",
       player_manage_permissions: "房主/管理员权限",
       permission_modal_sub: "活跃成员（包含你自己）。房主为单选，管理员为多选。",
@@ -1481,7 +1573,11 @@
       now_you_are_host: "你已成为房主",
       admins_synced: "管理员已同步",
       play_mode_synced: "播放模式已同步",
-      playlist_updated: "播放列表已更新"
+      playlist_updated: "播放列表已更新",
+      playlist_exported: "歌单已导出为 JSON",
+      playlist_import_invalid_json: "导入失败：JSON 格式无效",
+      playlist_import_empty: "导入失败：未找到可导入的视频条目",
+      playlist_import_result: "歌单导入完成：成功 {success} 条，失败 {failed} 条"
     },
     en: {
       mode_list_loop: "List Loop",
@@ -1499,6 +1595,7 @@
       host_only_change_mode: "Only host can change play mode",
       host_only_permission: "Only host can manage host/admin permissions",
       host_admin_add_video: "Only host/admin can add videos",
+      host_admin_import_playlist: "Only host/admin can import playlists",
       host_only_skip: "Only host can skip tracks",
       skip_to_next: "Skip to next video",
       failed_build_watch_url: "Failed to build Bilibili watch URL.",
@@ -1537,6 +1634,8 @@
       player_shared_videos: "Shared Videos",
       player_add_placeholder: "Paste Bilibili URL or BV",
       player_add_btn: "+ Add",
+      player_import_btn: "Import JSON",
+      player_export_btn: "Export JSON",
       player_mode_title: "Playback mode",
       player_manage_permissions: "Host/Admin Permissions",
       permission_modal_sub: "Active members (including yourself). Host is single-select, Admin is multi-select.",
@@ -1575,7 +1674,11 @@
       now_you_are_host: "You are now host",
       admins_synced: "Admins synced",
       play_mode_synced: "Play mode synced",
-      playlist_updated: "Playlist updated"
+      playlist_updated: "Playlist updated",
+      playlist_exported: "Playlist exported as JSON",
+      playlist_import_invalid_json: "Import failed: invalid JSON format",
+      playlist_import_empty: "Import failed: no valid video entries found",
+      playlist_import_result: "Playlist import complete: {success} succeeded, {failed} failed"
     }
   };
   function normalizeLanguage(language) {
@@ -1642,6 +1745,10 @@
     if (videoTitleEl) videoTitleEl.textContent = t("player_shared_videos");
     const addBtn = content.querySelector("#bclt-btn-add-video");
     if (addBtn) addBtn.textContent = t("player_add_btn");
+    const importBtn = content.querySelector("#bclt-btn-import-playlist");
+    if (importBtn) importBtn.textContent = t("player_import_btn");
+    const exportBtn = content.querySelector("#bclt-btn-export-playlist");
+    if (exportBtn) exportBtn.textContent = t("player_export_btn");
     const addInput = content.querySelector("#bclt-add-video-input");
     if (addInput) addInput.placeholder = t("player_add_placeholder");
     const modeSlider = content.querySelector("#bclt-mode-slider");
@@ -1889,14 +1996,15 @@
     });
   }
   function refreshHostUiPrivileges() {
-    var _a, _b, _c, _d, _e;
+    var _a, _b, _c, _d, _e, _f;
     const hostOnly = !!state.settings.isHost;
     const canEditPlaylist = canManagePlaylist();
     const permissionBtn = (_a = windowInstance == null ? void 0 : windowInstance.content) == null ? void 0 : _a.querySelector("#bclt-btn-manage-permissions");
     const modeButtons = ((_b = windowInstance == null ? void 0 : windowInstance.content) == null ? void 0 : _b.querySelectorAll(".mode-slider-btn")) || [];
     const addVideoBtn = (_c = windowInstance == null ? void 0 : windowInstance.content) == null ? void 0 : _c.querySelector("#bclt-btn-add-video");
     const addVideoInput = (_d = windowInstance == null ? void 0 : windowInstance.content) == null ? void 0 : _d.querySelector("#bclt-add-video-input");
-    const skipBtn = (_e = windowInstance == null ? void 0 : windowInstance.content) == null ? void 0 : _e.querySelector("#bclt-btn-skip-next");
+    const importPlaylistBtn = (_e = windowInstance == null ? void 0 : windowInstance.content) == null ? void 0 : _e.querySelector("#bclt-btn-import-playlist");
+    const skipBtn = (_f = windowInstance == null ? void 0 : windowInstance.content) == null ? void 0 : _f.querySelector("#bclt-btn-skip-next");
     modeButtons.forEach((btn) => {
       btn.disabled = !hostOnly;
       btn.title = hostOnly ? "" : t("host_only_change_mode");
@@ -1914,6 +2022,11 @@
     if (addVideoInput) {
       addVideoInput.disabled = !canEditPlaylist;
       addVideoInput.title = canEditPlaylist ? "" : t("host_admin_add_video");
+    }
+    if (importPlaylistBtn) {
+      importPlaylistBtn.disabled = !canEditPlaylist;
+      importPlaylistBtn.style.opacity = canEditPlaylist ? "1" : "0.6";
+      importPlaylistBtn.title = canEditPlaylist ? "" : t("host_admin_import_playlist");
     }
     if (skipBtn) {
       skipBtn.disabled = !hostOnly;
@@ -2781,6 +2894,10 @@
             min-width: 0;
         }
 
+        #bclt-window .playlist-io-btn {
+            flex-shrink: 0;
+        }
+
         #bclt-window .add-video-input {
             flex: 1;
             min-width: 0;
@@ -3598,6 +3715,11 @@
                     <div class="video-list-header-row">
                         <input id="bclt-add-video-input" class="add-video-input" type="text" placeholder="${t("player_add_placeholder")}" />
                         <button id="bclt-btn-add-video" class="btn-accent btn-small" type="button">${t("player_add_btn")}</button>
+                    </div>
+                    <div class="video-list-header-row">
+                        <button id="bclt-btn-import-playlist" class="btn-neutral btn-small playlist-io-btn" type="button">${t("player_import_btn")}</button>
+                        <button id="bclt-btn-export-playlist" class="btn-neutral btn-small playlist-io-btn" type="button">${t("player_export_btn")}</button>
+                        <input id="bclt-import-playlist-input" type="file" accept="application/json,.json" style="display:none" />
                         <div id="bclt-mode-slider" class="mode-slider" data-mode="list" title="${t("player_mode_title")}">
                             <button class="mode-slider-btn" data-mode="list" type="button" title="${t("mode_list_loop")}">🔁</button>
                             <button class="mode-slider-btn" data-mode="single" type="button" title="${t("mode_single_loop")}">🔂</button>
@@ -3642,6 +3764,9 @@
     const highQualityModeCheckbox = windowInstance.content.querySelector("#bclt-hq-tab-mode");
     const addVideoInput = windowInstance.content.querySelector("#bclt-add-video-input");
     const addVideoBtn = windowInstance.content.querySelector("#bclt-btn-add-video");
+    const importPlaylistBtn = windowInstance.content.querySelector("#bclt-btn-import-playlist");
+    const exportPlaylistBtn = windowInstance.content.querySelector("#bclt-btn-export-playlist");
+    const importPlaylistInput = windowInstance.content.querySelector("#bclt-import-playlist-input");
     const managePermissionsBtn = windowInstance.content.querySelector("#bclt-btn-manage-permissions");
     const modeButtons = windowInstance.content.querySelectorAll(".mode-slider-btn");
     syncProgressCheckbox.checked = state.settings.syncPlaybackProgress !== false;
@@ -3715,6 +3840,22 @@
         void submitInlineVideo();
       }
     });
+    exportPlaylistBtn.addEventListener("click", () => {
+      exportPlaylistAsJson();
+    });
+    importPlaylistBtn.addEventListener("click", () => {
+      if (!canManagePlaylist()) {
+        alert(t("host_admin_import_playlist"));
+        return;
+      }
+      importPlaylistInput.click();
+    });
+    importPlaylistInput.addEventListener("change", async () => {
+      const file = importPlaylistInput.files && importPlaylistInput.files[0];
+      importPlaylistInput.value = "";
+      if (!file) return;
+      await importPlaylistFromJsonFile(file);
+    });
     managePermissionsBtn.addEventListener("click", async () => {
       if (!state.settings.isHost) {
         alert(t("only_host_manage_permissions"));
@@ -3767,7 +3908,114 @@
     initializeRoomMode();
     windowInstance.show();
   }
-  async function addVideoToRoom(bilibiliBvId) {
+  function buildPlaylistExportPayload() {
+    return {
+      schema: "bclt.playlist.v1",
+      exportedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      roomId: String(state.settings.roomId || ""),
+      roomName: String(state.settings.roomName || ""),
+      playbackMode: normalizePlaybackMode(state.settings.playbackMode),
+      videos: activeVideos.map((video) => ({
+        bvid: String(video.bvid || ""),
+        title: sanitizeBilibiliText(video.title || ""),
+        url: String(video.url || ""),
+        sender: String(video.sender || ""),
+        timestamp: Number(video.timestamp || Date.now())
+      }))
+    };
+  }
+  function downloadJson(filename, payload) {
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
+    const href = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = href;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(href), 1e3);
+  }
+  function buildPlaylistExportFilename() {
+    const now = /* @__PURE__ */ new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const day = String(now.getDate()).padStart(2, "0");
+    const hour = String(now.getHours()).padStart(2, "0");
+    const minute = String(now.getMinutes()).padStart(2, "0");
+    const second = String(now.getSeconds()).padStart(2, "0");
+    return `bclt-playlist-${year}${month}${day}-${hour}${minute}${second}.json`;
+  }
+  function exportPlaylistAsJson() {
+    const payload = buildPlaylistExportPayload();
+    downloadJson(buildPlaylistExportFilename(), payload);
+    updatePlaybackUi(t("playlist_exported"));
+  }
+  function extractPlaylistImportEntries(parsed) {
+    if (Array.isArray(parsed)) return parsed;
+    if (!parsed || typeof parsed !== "object") return [];
+    if (Array.isArray(parsed.videos)) return parsed.videos;
+    if (Array.isArray(parsed.playlist)) return parsed.playlist;
+    if (Array.isArray(parsed.items)) return parsed.items;
+    return [];
+  }
+  function normalizePlaylistImportEntry(entry) {
+    if (!entry) return null;
+    if (typeof entry === "string") {
+      const text = entry.trim();
+      return text ? text : null;
+    }
+    if (typeof entry !== "object") return null;
+    const bvid = String(entry.bvid || "").trim();
+    const url = String(entry.url || "").trim();
+    const title = sanitizeBilibiliText(entry.title || "");
+    const source = String(entry.source || entry.input || "").trim();
+    if (bvid || url || source) {
+      return {
+        bvid,
+        url,
+        title,
+        source
+      };
+    }
+    return null;
+  }
+  async function importPlaylistFromJsonFile(file) {
+    if (!canManagePlaylist()) {
+      alert(t("host_admin_import_playlist"));
+      return;
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(await file.text());
+    } catch (error) {
+      alert(t("playlist_import_invalid_json"));
+      return;
+    }
+    const entries = extractPlaylistImportEntries(parsed).map(normalizePlaylistImportEntry).filter(Boolean);
+    if (!entries.length) {
+      alert(t("playlist_import_empty"));
+      return;
+    }
+    let success = 0;
+    let failed = 0;
+    for (const entry of entries) {
+      const candidate = typeof entry === "string" ? entry : entry.bvid || entry.url || entry.source || "";
+      if (!candidate) {
+        failed += 1;
+        continue;
+      }
+      const ok = await addVideoToRoom(typeof entry === "string" ? candidate : {
+        bvid: entry.bvid || candidate,
+        url: entry.url || candidate,
+        title: entry.title || ""
+      }, { silent: true });
+      if (ok) success += 1;
+      else failed += 1;
+    }
+    updatePlaybackUi(t("playlist_import_result", { success, failed }));
+  }
+  async function addVideoToRoom(bilibiliBvId, options = {}) {
+    const { silent = false } = options;
     try {
       const sourceText = typeof bilibiliBvId === "string" ? bilibiliBvId : String((bilibiliBvId == null ? void 0 : bilibiliBvId.url) || (bilibiliBvId == null ? void 0 : bilibiliBvId.bvid) || "");
       const inputBvid = typeof bilibiliBvId === "object" && (bilibiliBvId == null ? void 0 : bilibiliBvId.bvid) ? String(bilibiliBvId.bvid) : sourceText;
@@ -3802,9 +4050,13 @@
       });
       updateVideoList();
       logStatus(`Added: ${title}`);
+      return true;
     } catch (error) {
-      alert(`Error: ${error.message}`);
+      if (!silent) {
+        alert(`Error: ${error.message}`);
+      }
       console.error("[BCLT] Error adding video:", error);
+      return false;
     }
   }
   function removeVideoByReference(reference, options = {}) {

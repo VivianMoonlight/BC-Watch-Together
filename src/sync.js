@@ -1,10 +1,16 @@
 import { applyBilibiliRemoteSync } from './bilibili.js';
 import { getCurrentMediaElement, readLocalMediaState } from './media.js';
-import { CHANNEL_PREFIX, effectiveDisplayName, logStatus, memberId, nowMs, state } from './state.js';
+import { CHANNEL_PREFIX, effectiveDisplayName, logStatus, memberId, nowMs, saveSettings, state } from './state.js';
 
 const HARDWIRED_SUPABASE_URL = 'https://ikzntirwphumwkekflek.supabase.co';
 const HARDWIRED_SUPABASE_ANON_KEY = 'sb_publishable_0cwF0A-zVDkg0IGRQYrUSQ_nEIPsFBU';
 let lastPasscodeMismatchWarnAt = 0;
+let hostOfflineFallbackInFlight = false;
+let hostOfflineFallbackLastAttemptAt = 0;
+
+const HOST_OFFLINE_FALLBACK_MS = 30000;
+const HOST_FALLBACK_ACTIVE_WINDOW_MS = 60000;
+const HOST_FALLBACK_COOLDOWN_MS = 12000;
 
 const SUPABASE_UMD_URLS = [
     'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js',
@@ -724,6 +730,127 @@ async function transferOwnershipOnHostLeave() {
     }
 }
 
+function readMemberLastSeenMs(member) {
+    const ts = new Date(member?.lastSeenAt || '').getTime();
+    return Number.isFinite(ts) ? ts : NaN;
+}
+
+function sortFallbackCandidates(a, b) {
+    const aIsAdmin = state.roomAdminMemberIds.includes(a.memberId) ? 1 : 0;
+    const bIsAdmin = state.roomAdminMemberIds.includes(b.memberId) ? 1 : 0;
+    if (aIsAdmin !== bIsAdmin) return bIsAdmin - aIsAdmin;
+    if (a.lastSeenMs !== b.lastSeenMs) return b.lastSeenMs - a.lastSeenMs;
+    return String(a.memberId).localeCompare(String(b.memberId));
+}
+
+async function maybePromoteSelfOnHostOffline(client) {
+    if (state.settings.isHost) return;
+    if (!state.settings.roomId || !state.connected || !state.channel) return;
+
+    const now = Date.now();
+    if (hostOfflineFallbackInFlight) return;
+    if (now - hostOfflineFallbackLastAttemptAt < HOST_FALLBACK_COOLDOWN_MS) return;
+
+    const currentHostId = String(state.settings.roomHostMemberId || '').trim();
+    if (!currentHostId) return;
+
+    hostOfflineFallbackInFlight = true;
+    hostOfflineFallbackLastAttemptAt = now;
+    try {
+        const allMembers = await fetchRoomMembers({
+            includeStale: true,
+            excludeSelf: false,
+            activeWindowMs: HOST_FALLBACK_ACTIVE_WINDOW_MS,
+        });
+
+        const hostMember = allMembers.find((member) => member.memberId === currentHostId);
+        const hostLastSeenMs = readMemberLastSeenMs(hostMember);
+        const hostLooksOffline = !hostMember
+            || !Number.isFinite(hostLastSeenMs)
+            || now - hostLastSeenMs > HOST_OFFLINE_FALLBACK_MS;
+        if (!hostLooksOffline) return;
+
+        const activeCutoff = now - HOST_FALLBACK_ACTIVE_WINDOW_MS;
+        const activeCandidates = allMembers
+            .map((member) => ({ ...member, lastSeenMs: readMemberLastSeenMs(member) }))
+            .filter((member) => Number.isFinite(member.lastSeenMs) && member.lastSeenMs >= activeCutoff)
+            .sort(sortFallbackCandidates);
+
+        if (!activeCandidates.length) return;
+        const electedCandidate = activeCandidates[0];
+        if (!electedCandidate || electedCandidate.memberId !== memberId()) return;
+
+        const selfId = memberId();
+        const nowIso = new Date().toISOString();
+
+        const { data: claimRows, error: claimError } = await client
+            .from('bclt_rooms')
+            .update({
+                host_member_id: selfId,
+                updated_at: nowIso,
+            })
+            .eq('room_id', state.settings.roomId)
+            .eq('host_member_id', currentHostId)
+            .select('room_id, host_member_id');
+
+        if (claimError) {
+            console.warn('[BCLT] host offline fallback claim failed:', claimError.message);
+            return;
+        }
+        if (!Array.isArray(claimRows) || claimRows.length === 0) {
+            return;
+        }
+
+        const { error: roomStateError } = await client
+            .from('bclt_room_states')
+            .update({ host_member_id: selfId, updated_at: nowIso })
+            .eq('room_id', state.settings.roomId)
+            .eq('host_member_id', currentHostId);
+        if (roomStateError) {
+            console.warn('[BCLT] host offline fallback room state update failed:', roomStateError.message);
+        }
+
+        const { error: clearHostError } = await client
+            .from('bclt_room_members')
+            .update({ is_host: false })
+            .eq('room_id', state.settings.roomId);
+        if (clearHostError) {
+            console.warn('[BCLT] host offline fallback clear host flag failed:', clearHostError.message);
+        }
+
+        const { error: setHostError } = await client
+            .from('bclt_room_members')
+            .update({ is_host: true, last_seen_at: nowIso })
+            .eq('room_id', state.settings.roomId)
+            .eq('member_id', selfId);
+        if (setHostError) {
+            console.warn('[BCLT] host offline fallback set host flag failed:', setHostError.message);
+        }
+
+        state.settings.roomHostMemberId = selfId;
+        state.settings.isHost = true;
+        state.currentRoomHostName = effectiveDisplayName();
+        state.roomAdminMemberIds = state.roomAdminMemberIds.filter((id) => String(id || '').trim() !== selfId);
+        saveSettings();
+
+        await publish('room_control', {
+            action: 'ownership_transferred',
+            roomId: state.settings.roomId,
+            previousHostMemberId: currentHostId,
+            newHostMemberId: selfId,
+            newHostDisplayName: effectiveDisplayName(),
+            adminMemberIds: [...state.roomAdminMemberIds],
+            at: Date.now(),
+        });
+
+        logStatus('Host offline detected. Fallback promoted you to host.');
+    } catch (error) {
+        console.warn('[BCLT] host offline fallback failed:', error);
+    } finally {
+        hostOfflineFallbackInFlight = false;
+    }
+}
+
 export function startRuntimeLoops(client) {
     stopRuntimeLoops();
 
@@ -749,6 +876,8 @@ export function startRuntimeLoops(client) {
 
         if (state.settings.isHost) {
             await touchRoom(client);
+        } else {
+            await maybePromoteSelfOnHostOffline(client);
         }
     }, 10000);
 }
