@@ -733,7 +733,7 @@ function buildBilibiliWatchUrl(sourceUrl, currentTime = 0, { autoplay = true } =
             url.searchParams.set('p', String(page));
         }
 
-        const seconds = Math.max(0, Math.floor(Number(currentTime) || 0));
+        const seconds = Math.max(1, Math.floor(Number(currentTime) || 0));
         url.searchParams.set('t', String(seconds));
 
         if (autoplay) {
@@ -3311,7 +3311,7 @@ async function controlRoomPlayback(action, value = 0) {
 }
 
 async function playVideo(bvid, options = {}) {
-    const sourceUrl = `https://www.bilibili.com/video/${bvid}?t=0`;
+    const sourceUrl = `https://www.bilibili.com/video/${bvid}?t=1`;
     await applyRoomPlaybackState({
         sourceUrl,
         currentTime: 0,

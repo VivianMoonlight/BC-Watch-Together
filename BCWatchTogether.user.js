@@ -141,7 +141,7 @@
   }
   function buildBilibiliPlayerUrl(input, options = {}) {
     const { currentTime = 0, autoplay = false } = options;
-    const targetTime = Math.max(0, Math.floor(Number(currentTime) || 0));
+    const targetTime = Math.max(1, Math.floor(Number(currentTime) || 0));
     const text = String(input || "").trim();
     const bvid = parseBilibiliBvid(text);
     if (bvid) {
@@ -1764,7 +1764,7 @@
       if (page > 1) {
         url.searchParams.set("p", String(page));
       }
-      const seconds = Math.max(0, Math.floor(Number(currentTime) || 0));
+      const seconds = Math.max(1, Math.floor(Number(currentTime) || 0));
       url.searchParams.set("t", String(seconds));
       if (autoplay) {
         url.searchParams.set("autoplay", "1");
@@ -4107,7 +4107,7 @@
     }
   }
   async function playVideo(bvid, options = {}) {
-    const sourceUrl = `https://www.bilibili.com/video/${bvid}?t=0`;
+    const sourceUrl = `https://www.bilibili.com/video/${bvid}?t=1`;
     await applyRoomPlaybackState({
       sourceUrl,
       currentTime: 0,

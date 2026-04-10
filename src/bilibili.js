@@ -30,7 +30,7 @@ export function secondsToHms(seconds) {
 
 export function buildBilibiliPlayerUrl(input, options = {}) {
     const { currentTime = 0, autoplay = false } = options;
-    const targetTime = Math.max(0, Math.floor(Number(currentTime) || 0));
+    const targetTime = Math.max(1, Math.floor(Number(currentTime) || 0));
     const text = String(input || '').trim();
     const bvid = parseBilibiliBvid(text);
     if (bvid) {
