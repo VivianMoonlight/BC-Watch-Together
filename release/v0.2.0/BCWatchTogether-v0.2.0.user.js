@@ -141,6 +141,7 @@
   }
   function buildBilibiliPlayerUrl(input, options = {}) {
     const { currentTime = 0, autoplay = false } = options;
+    const targetTime = Math.max(0, Math.floor(Number(currentTime) || 0));
     const text = String(input || "").trim();
     const bvid = parseBilibiliBvid(text);
     if (bvid) {
@@ -149,11 +150,9 @@
         page: "1",
         as_wide: "1",
         high_quality: "1",
-        autoplay: autoplay ? "1" : "0"
+        autoplay: autoplay ? "1" : "0",
+        t: String(targetTime)
       });
-      if (Number.isFinite(Number(currentTime)) && Number(currentTime) > 0) {
-        params.set("t", String(Math.max(0, Math.floor(Number(currentTime)))));
-      }
       return `https://player.bilibili.com/player.html?${params.toString()}`;
     }
     if (isBilibiliUrl(text)) {
@@ -171,11 +170,9 @@
             page,
             as_wide: "1",
             high_quality: "1",
-            autoplay: autoplay ? "1" : "0"
+            autoplay: autoplay ? "1" : "0",
+            t: String(targetTime)
           });
-          if (Number.isFinite(Number(currentTime)) && Number(currentTime) > 0) {
-            params.set("t", String(Math.max(0, Math.floor(Number(currentTime)))));
-          }
           return `https://player.bilibili.com/player.html?${params.toString()}`;
         }
       } catch (error) {
@@ -1724,9 +1721,7 @@
         url.searchParams.set("p", String(page));
       }
       const seconds = Math.max(0, Math.floor(Number(currentTime) || 0));
-      if (seconds > 0) {
-        url.searchParams.set("t", String(seconds));
-      }
+      url.searchParams.set("t", String(seconds));
       if (autoplay) {
         url.searchParams.set("autoplay", "1");
       }

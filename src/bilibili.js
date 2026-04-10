@@ -30,6 +30,7 @@ export function secondsToHms(seconds) {
 
 export function buildBilibiliPlayerUrl(input, options = {}) {
     const { currentTime = 0, autoplay = false } = options;
+    const targetTime = Math.max(0, Math.floor(Number(currentTime) || 0));
     const text = String(input || '').trim();
     const bvid = parseBilibiliBvid(text);
     if (bvid) {
@@ -39,10 +40,8 @@ export function buildBilibiliPlayerUrl(input, options = {}) {
             as_wide: '1',
             high_quality: '1',
             autoplay: autoplay ? '1' : '0',
+            t: String(targetTime),
         });
-        if (Number.isFinite(Number(currentTime)) && Number(currentTime) > 0) {
-            params.set('t', String(Math.max(0, Math.floor(Number(currentTime)))));
-        }
         return `https://player.bilibili.com/player.html?${params.toString()}`;
     }
 
@@ -62,10 +61,8 @@ export function buildBilibiliPlayerUrl(input, options = {}) {
                     as_wide: '1',
                     high_quality: '1',
                     autoplay: autoplay ? '1' : '0',
+                    t: String(targetTime),
                 });
-                if (Number.isFinite(Number(currentTime)) && Number(currentTime) > 0) {
-                    params.set('t', String(Math.max(0, Math.floor(Number(currentTime)))));
-                }
                 return `https://player.bilibili.com/player.html?${params.toString()}`;
             }
         } catch (error) {

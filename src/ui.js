@@ -714,9 +714,7 @@ function buildBilibiliWatchUrl(sourceUrl, currentTime = 0, { autoplay = true } =
         }
 
         const seconds = Math.max(0, Math.floor(Number(currentTime) || 0));
-        if (seconds > 0) {
-            url.searchParams.set('t', String(seconds));
-        }
+        url.searchParams.set('t', String(seconds));
 
         if (autoplay) {
             url.searchParams.set('autoplay', '1');
