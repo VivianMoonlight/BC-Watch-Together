@@ -1,4 +1,4 @@
-# BC Listen Together 🎵
+# BC Watch Together 🎵
 
 **与朋友实时共同观看 Bilibili 视频的 Bondage Club 用户脚本。**
 
@@ -31,11 +31,11 @@
 2. **安装脚本**  
    点击下方按钮在新标签页安装脚本：
 
-   📦 **[安装 BC Listen Together](https://github.com/VivianMoonlight/BC-listen-together/raw/main/BCListenTogether.user.js)**
+   📦 **[安装 BC Watch Together](https://github.com/VivianMoonlight/BC-Watch-Together/raw/main/BCWatchTogether.user.js)**
 
    或手动复制脚本 URL 到管理器中：
    ```
-   https://github.com/VivianMoonlight/BC-listen-together/raw/main/BCListenTogether.user.js
+   https://github.com/VivianMoonlight/BC-Watch-Together/raw/main/BCWatchTogether.user.js
    ```
 
 3. **打开 Bondage Club**  
@@ -51,14 +51,12 @@
 
 ### 首次配置
 
-在房间列表模式中，填写以下信息（可从房间创建者获得）：
+在房间列表模式中，填写以下信息：
 
 | 字段 | 说明 | 示例 |
 |------|------|------|
-| **Supabase URL** | Supabase 项目 URL | `https://ikzntirwphumwkekflek.supabase.co` |
-| **Supabase Anon Key** | Supabase 匿名密钥 | `sb_publishable_0cwF0A-...` |
+| **Room Name** | 房间名称（必填） | `MyRoom` |
 | **Room Passcode** | 房间密码（可选） | `secret123` |
-| **Display Name** | 您的昵称（可选） | `Alice` |
 
 ### 加入房间
 
@@ -146,13 +144,13 @@ A: 尝试：
 如遇到问题，请：
 1. 检查浏览器控制台是否有错误信息
 2. 查阅本 README 中的常见问题
-3. 提交问题到 [GitHub Issues](https://github.com/VivianMoonlight/BC-listen-together/issues)
+3. 提交问题到 [GitHub Issues](https://github.com/VivianMoonlight/BC-Watch-Together/issues)
 
 ---
 
 # English README
 
-# BC Listen Together 🎵
+# BC Watch Together 🎵
 
 **A Bondage Club userscript to watch Bilibili videos together with friends in real-time.**
 
@@ -179,11 +177,11 @@ A: 尝试：
 2. **Install Script**  
    Click the button below to install the script in a new tab:
 
-   📦 **[Install BC Listen Together](https://github.com/VivianMoonlight/BC-listen-together/raw/main/BCListenTogether.user.js)**
+   📦 **[Install BC Watch Together](https://github.com/VivianMoonlight/BC-Watch-Together/raw/main/BCWatchTogether.user.js)**
 
    Or manually copy the script URL into your manager:
    ```
-   https://github.com/VivianMoonlight/BC-listen-together/raw/main/BCListenTogether.user.js
+   https://github.com/VivianMoonlight/BC-Watch-Together/raw/main/BCWatchTogether.user.js
    ```
 
 3. **Open Bondage Club**  
@@ -197,14 +195,12 @@ Click the green circle **♫** button in the bottom-right corner of the page aft
 
 ### Initial Setup
 
-Fill in the following fields in room list mode (get credentials from the room creator):
+Fill in the following fields in room list mode:
 
 | Field | Description | Example |
 |-------|-------------|---------|
-| **Supabase URL** | Supabase project URL | `https://ikzntirwphumwkekflek.supabase.co` |
-| **Supabase Anon Key** | Supabase anonymous key | `sb_publishable_0cwF0A-...` |
+| **Room Name** | Room name (required) | `MyRoom` |
 | **Room Passcode** | Room password (optional) | `secret123` |
-| **Display Name** | Your nickname (optional) | `Alice` |
 
 ### Join a Room
 
@@ -274,4 +270,4 @@ This project is licensed under the [LICENSE](LICENSE).
 - 🏠 [Bondage Club](https://www.bondageprojects.com)
 - 💻 [Violentmonkey](https://violentmonkey.github.io/)
 - 🔑 [Supabase](https://supabase.com)
-- 📂 [GitHub Repository](https://github.com/VivianMoonlight/BC-listen-together)
+- 📂 [GitHub Repository](https://github.com/VivianMoonlight/BC-Watch-Together)

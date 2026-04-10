@@ -31,7 +31,7 @@ npm run dev
 2. 设置脚本 URL 为：
 
 ```
-http://127.0.0.1:5180/BCListenTogether.user.js
+http://127.0.0.1:5180/BCWatchTogether.user.js
 ```
 
 3. 访问 `https://www.bondageprojects.com`
@@ -51,7 +51,7 @@ npm run build
 ```
 
 生产输出将在以下位置生成：
-- `dist/BCListenTogether.user.js` - 完整构建
+- `dist/BCWatchTogether.user.js` - 完整构建
 
 ## 本地打包流程
 
@@ -65,7 +65,7 @@ npm run pack:local
 - 清理旧的构建工件 (`dist/`, `release/`)
 - 校验版本指定的一致性
 - 构建生产用户脚本
-- 将脚本发布到仓库根目录 (`BCListenTogether.user.js`)
+- 将脚本发布到仓库根目录 (`BCWatchTogether.user.js`)
 - 将发布工件打包到 `release/vX.Y.Z`
 - 生成 `SHA256SUMS.txt` 和 `release-manifest.json`
 
@@ -103,7 +103,7 @@ git push origin v0.2.0
 ## 项目结构
 
 ```
-BC-listen-together/
+BC-Watch-Together/
 ├── src/
 │   ├── userscript-entry.js      # 用户脚本入口点
 │   ├── ui.js                     # UI 组件和窗口管理
@@ -153,7 +153,7 @@ BC-listen-together/
 
 **Q: 开发脚本不加载**
 - 确认 `npm run dev` 仍在运行
-- 检查脚本管理器是否正确指向 `http://127.0.0.1:5180/BCListenTogether.user.js`
+- 检查脚本管理器是否正确指向 `http://127.0.0.1:5180/BCWatchTogether.user.js`
 - 检查浏览器控制台是否有错误
 
 **Q: 构建失败**

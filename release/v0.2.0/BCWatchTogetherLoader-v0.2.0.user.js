@@ -19,7 +19,7 @@
     'use strict';
 
     // This URL points to the published bundled userscript artifact.
-    const REMOTE_ENTRY_URL = 'https://raw.githubusercontent.com/VivianMoonlight/BC-listen-together/main/dist/BCListenTogether.user.js';
+    const REMOTE_ENTRY_URL = 'https://raw.githubusercontent.com/VivianMoonlight/BC-Watch-Together/main/dist/BCWatchTogether.user.js';
 
     setTimeout(() => {
         const script = document.createElement('script');

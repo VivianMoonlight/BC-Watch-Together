@@ -36,7 +36,7 @@ export default defineConfig({
                 runAt: 'document-idle',
             },
             build: {
-                fileName: 'BCListenTogether.user.js',
+                fileName: 'BCWatchTogether.user.js',
             },
         }),
     ],

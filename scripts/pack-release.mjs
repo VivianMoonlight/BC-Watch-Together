@@ -9,19 +9,19 @@ const projectRoot = resolve(__dirname, '..');
 const pkg = JSON.parse(readFileSync(resolve(projectRoot, 'package.json'), 'utf8'));
 const version = String(pkg.version || '').trim();
 
-const distScript = resolve(projectRoot, 'dist', 'BCListenTogether.user.js');
+const distScript = resolve(projectRoot, 'dist', 'BCWatchTogether.user.js');
 const loaderScript = resolve(projectRoot, 'loader.user.js');
 if (!existsSync(distScript)) {
-    console.error('[pack-release] missing dist/BCListenTogether.user.js. Run build first.');
+    console.error('[pack-release] missing dist/BCWatchTogether.user.js. Run build first.');
     process.exit(1);
 }
 
 const releaseDir = resolve(projectRoot, 'release', `v${version}`);
 mkdirSync(releaseDir, { recursive: true });
 
-const publishedScriptPath = resolve(projectRoot, 'BCListenTogether.user.js');
-const releaseScriptPath = resolve(releaseDir, `BCListenTogether-v${version}.user.js`);
-const releaseLoaderPath = resolve(releaseDir, `BCListenTogetherLoader-v${version}.user.js`);
+const publishedScriptPath = resolve(projectRoot, 'BCWatchTogether.user.js');
+const releaseScriptPath = resolve(releaseDir, `BCWatchTogether-v${version}.user.js`);
+const releaseLoaderPath = resolve(releaseDir, `BCWatchTogetherLoader-v${version}.user.js`);
 copyFileSync(distScript, publishedScriptPath);
 copyFileSync(distScript, releaseScriptPath);
 copyFileSync(loaderScript, releaseLoaderPath);
@@ -30,7 +30,7 @@ const hash = createHash('sha256').update(readFileSync(releaseScriptPath)).digest
 const checksumPath = resolve(releaseDir, 'SHA256SUMS.txt');
 writeFileSync(
     checksumPath,
-    `${hash}  BCListenTogether-v${version}.user.js\n`,
+    `${hash}  BCWatchTogether-v${version}.user.js\n`,
     'utf8'
 );
 
@@ -39,12 +39,12 @@ writeFileSync(
     manifestPath,
     JSON.stringify(
         {
-            name: 'bc-listen-together',
+            name: 'bc-watch-together',
             version,
             generatedAt: new Date().toISOString(),
             artifacts: [
-                `BCListenTogether-v${version}.user.js`,
-                `BCListenTogetherLoader-v${version}.user.js`,
+                `BCWatchTogether-v${version}.user.js`,
+                `BCWatchTogetherLoader-v${version}.user.js`,
                 'SHA256SUMS.txt',
             ],
         },

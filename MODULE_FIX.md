@@ -7,7 +7,7 @@ Error loading rooms: SyntaxError: Cannot use import statement outside a module
 ```
 
 ## Root Cause
-The `loader.user.js` was attempting to load the `BCListenTogether.user.js` bundle as an ES6 module (`type="module"`), but the bundle was built as a SystemJS module (System.register format). This mismatch caused the browser to fail parsing the script.
+The `loader.user.js` was attempting to load the `BCWatchTogether.user.js` bundle as an ES6 module (`type="module"`), but the bundle was built as a SystemJS module (System.register format). This mismatch caused the browser to fail parsing the script.
 
 ### Technical Details
 1. **vite-plugin-monkey** builds userscripts as SystemJS modules by default (requires @require SystemJS libraries)
@@ -26,13 +26,13 @@ The `loader.user.js` was attempting to load the `BCListenTogether.user.js` bundl
 **Before:**
 ```javascript
 script.type = 'module';
-const REMOTE_ENTRY_URL = 'https://raw.githubusercontent.com/VivianMoonlight/BC-listen-together/main/BCListenTogether.user.js';
+const REMOTE_ENTRY_URL = 'https://raw.githubusercontent.com/VivianMoonlight/BC-Watch-Together/main/BCWatchTogether.user.js';
 ```
 
 **After:**
 ```javascript
 // script.type = 'module';  // REMOVED - SystemJS doesn't need this
-const REMOTE_ENTRY_URL = 'https://raw.githubusercontent.com/VivianMoonlight/BC-listen-together/main/dist/BCListenTogether.user.js';
+const REMOTE_ENTRY_URL = 'https://raw.githubusercontent.com/VivianMoonlight/BC-Watch-Together/main/dist/BCWatchTogether.user.js';
 // Added: script.onerror callback
 ```
 
@@ -46,8 +46,8 @@ const REMOTE_ENTRY_URL = 'https://raw.githubusercontent.com/VivianMoonlight/BC-l
 ## How It Works Now
 
 1. **loader.user.js** is installed directly by users
-2. It loads the **dist/BCListenTogether.user.js** script as a regular script (not as ES6 module)
-3. The SystemJS `@require` headers in BCListenTogether.user.js ensure SystemJS is available
+2. It loads the **dist/BCWatchTogether.user.js** script as a regular script (not as ES6 module)
+3. The SystemJS `@require` headers in BCWatchTogether.user.js ensure SystemJS is available
 4. System.register() and System.import() properly bootstrap the application
 5. Dynamic imports (like Supabase fetch) are transpiled to work within this context
 
