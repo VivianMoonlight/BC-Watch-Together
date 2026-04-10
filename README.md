@@ -23,19 +23,19 @@
 - 浏览器：Chrome、Firefox、Edge、Safari（带扩展支持）
 - 用户脚本管理器：[Violentmonkey](https://violentmonkey.github.io/) 或 [Tampermonkey](https://www.tampermonkey.net/)
 
-### 安装脚本
+### 安装脚本（推荐使用 Loader）
 
 1. **安装用户脚本管理器**  
    从上面的链接选择您的浏览器并安装扩展程序
 
-2. **安装脚本**  
-   点击下方按钮在新标签页安装脚本：
+2. **安装 Loader 脚本**  
+   点击下方按钮在新标签页安装 loader：
 
-   📦 **[安装 BC Watch Together](https://github.com/VivianMoonlight/BC-Watch-Together/raw/main/BCWatchTogether.user.js)**
+   📦 **[安装 BC Watch Together Loader](https://github.com/VivianMoonlight/BC-Watch-Together/raw/main/loader.user.js)**
 
-   或手动复制脚本 URL 到管理器中：
+   或手动复制 loader URL 到管理器中：
    ```
-   https://github.com/VivianMoonlight/BC-Watch-Together/raw/main/BCWatchTogether.user.js
+   https://github.com/VivianMoonlight/BC-Watch-Together/raw/main/loader.user.js
    ```
 
 3. **打开 Bondage Club**  
@@ -169,19 +169,19 @@ A: 尝试：
 - Browser: Chrome, Firefox, Edge, Safari (with extension support)
 - Userscript Manager: [Violentmonkey](https://violentmonkey.github.io/) or [Tampermonkey](https://www.tampermonkey.net/)
 
-### Install Script
+### Install Script (Loader Recommended)
 
 1. **Install Userscript Manager**  
    Choose your browser from the links above and install the extension
 
-2. **Install Script**  
-   Click the button below to install the script in a new tab:
+2. **Install Loader Script**  
+   Click the button below to install the loader in a new tab:
 
-   📦 **[Install BC Watch Together](https://github.com/VivianMoonlight/BC-Watch-Together/raw/main/BCWatchTogether.user.js)**
+   📦 **[Install BC Watch Together Loader](https://github.com/VivianMoonlight/BC-Watch-Together/raw/main/loader.user.js)**
 
-   Or manually copy the script URL into your manager:
+   Or manually copy the loader URL into your manager:
    ```
-   https://github.com/VivianMoonlight/BC-Watch-Together/raw/main/BCWatchTogether.user.js
+   https://github.com/VivianMoonlight/BC-Watch-Together/raw/main/loader.user.js
    ```
 
 3. **Open Bondage Club**  
