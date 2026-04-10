@@ -1,4 +1,5 @@
 export const STORAGE_KEY = 'bclt.settings.v1';
+export const MEDIA_URL_MIGRATION_KEY = 'bclt.migrate.clear-media-url.v1';
 export const APP_ID = 'bclt-root';
 export const CHANNEL_PREFIX = 'bclt-room-';
 
@@ -57,7 +58,14 @@ export function loadSettings() {
         if (!raw) return { ...DEFAULT_SETTINGS };
         const parsed = JSON.parse(raw);
         const { supabaseUrl, supabaseAnonKey, ...rest } = parsed || {};
-        return { ...DEFAULT_SETTINGS, ...rest };
+        const merged = { ...DEFAULT_SETTINGS, ...rest };
+        const migrated = localStorage.getItem(MEDIA_URL_MIGRATION_KEY) === '1';
+        if (!migrated) {
+            merged.mediaUrl = '';
+            localStorage.setItem(MEDIA_URL_MIGRATION_KEY, '1');
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+        }
+        return merged;
     } catch (error) {
         console.warn('[BCLT] loadSettings failed:', error);
         return { ...DEFAULT_SETTINGS };

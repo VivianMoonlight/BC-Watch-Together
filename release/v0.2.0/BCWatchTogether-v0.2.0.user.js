@@ -18,6 +18,7 @@
   'use strict';
 
   const STORAGE_KEY = "bclt.settings.v1";
+  const MEDIA_URL_MIGRATION_KEY = "bclt.migrate.clear-media-url.v1";
   const APP_ID = "bclt-root";
   const CHANNEL_PREFIX = "bclt-room-";
   const DEFAULT_SETTINGS = {
@@ -73,7 +74,14 @@
       if (!raw) return { ...DEFAULT_SETTINGS };
       const parsed = JSON.parse(raw);
       const { supabaseUrl, supabaseAnonKey, ...rest } = parsed || {};
-      return { ...DEFAULT_SETTINGS, ...rest };
+      const merged = { ...DEFAULT_SETTINGS, ...rest };
+      const migrated = localStorage.getItem(MEDIA_URL_MIGRATION_KEY) === "1";
+      if (!migrated) {
+        merged.mediaUrl = "";
+        localStorage.setItem(MEDIA_URL_MIGRATION_KEY, "1");
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+      }
+      return merged;
     } catch (error) {
       console.warn("[BCLT] loadSettings failed:", error);
       return { ...DEFAULT_SETTINGS };
@@ -107,11 +115,6 @@
   }
   function setLocalChangeNotifier(notifier) {
     state.localChangeNotifier = typeof notifier === "function" ? notifier : null;
-  }
-  async function notifyLocalChange() {
-    if (state.localChangeNotifier) {
-      await state.localChangeNotifier();
-    }
   }
   function parseBilibiliBvid(input) {
     if (!input) return null;
@@ -188,9 +191,6 @@
   }
   function getBilibiliEmbedIframe() {
     return document.querySelector("#bclt-bilibili-dock iframe");
-  }
-  function hasRoomPlayerUi() {
-    return !!document.querySelector("#bclt-player-container");
   }
   const BILIBILI_VIEW_API = "https://api.bilibili.com/x/web-interface/view";
   const durationPromiseByBvid = /* @__PURE__ */ new Map();
@@ -370,157 +370,11 @@
     updateBilibiliDockStatus();
     return true;
   }
-  function createBilibiliEmbed(input) {
-    const playerUrl = buildBilibiliPlayerUrl(input, {
-      currentTime: state.bilibili.currentTime,
-      autoplay: !state.bilibili.paused
-    });
-    if (!playerUrl) return null;
-    removeBilibiliEmbed();
-    state.bilibili.sourceUrl = input;
-    state.bilibili.bvid = parseBilibiliBvid(input) || "";
-    state.bilibili.currentTime = state.bilibili.currentTime || 0;
-    state.bilibili.duration = null;
-    state.bilibili.paused = true;
-    state.bilibili.playbackRate = 1;
-    state.bilibili.startedAt = 0;
-    const dock = document.createElement("div");
-    dock.id = "bclt-bilibili-dock";
-    dock.style.position = "fixed";
-    dock.style.left = "16px";
-    dock.style.bottom = "16px";
-    dock.style.zIndex = "99999";
-    dock.style.width = "560px";
-    dock.style.maxWidth = "calc(100vw - 32px)";
-    dock.style.background = "rgba(15, 23, 42, 0.96)";
-    dock.style.border = "1px solid rgba(255,255,255,0.18)";
-    dock.style.borderRadius = "12px";
-    dock.style.boxShadow = "0 16px 36px rgba(0,0,0,0.42)";
-    dock.style.overflow = "hidden";
-    const header = document.createElement("div");
-    header.textContent = "Bilibili Embedded Player";
-    header.style.padding = "10px 12px";
-    header.style.font = "700 13px Segoe UI, Tahoma, sans-serif";
-    header.style.color = "#f3f7ff";
-    header.style.borderBottom = "1px solid rgba(255,255,255,0.12)";
-    const controls = document.createElement("div");
-    controls.style.display = "grid";
-    controls.style.gridTemplateColumns = "repeat(5, minmax(0, 1fr))";
-    controls.style.gap = "6px";
-    controls.style.padding = "10px 12px 0";
-    const makeButton = (label, handler, color = "#2563eb") => {
-      const button = document.createElement("button");
-      button.textContent = label;
-      button.style.border = "0";
-      button.style.borderRadius = "8px";
-      button.style.padding = "8px 6px";
-      button.style.cursor = "pointer";
-      button.style.font = "700 12px Segoe UI, Tahoma, sans-serif";
-      button.style.background = color;
-      button.style.color = "#fff";
-      button.addEventListener("click", handler);
-      return button;
-    };
-    const command = (action, value) => {
-      bilibiliCommand(action, value);
-    };
-    controls.appendChild(makeButton("Play", () => command("play")));
-    controls.appendChild(makeButton("Pause", () => command("pause"), "#475569"));
-    controls.appendChild(makeButton("-10s", () => command("step", -10), "#7c3aed"));
-    controls.appendChild(makeButton("+10s", () => command("step", 10), "#7c3aed"));
-    controls.appendChild(makeButton("Sync Now", () => command("sync-now"), "#0f766e"));
-    const timeBar = document.createElement("div");
-    timeBar.style.display = "grid";
-    timeBar.style.gridTemplateColumns = "1fr auto";
-    timeBar.style.gap = "8px";
-    timeBar.style.padding = "10px 12px 0";
-    const seekInput = document.createElement("input");
-    seekInput.type = "number";
-    seekInput.min = "0";
-    seekInput.step = "1";
-    seekInput.placeholder = "Seek seconds";
-    seekInput.style.width = "100%";
-    seekInput.style.boxSizing = "border-box";
-    seekInput.style.border = "1px solid rgba(255,255,255,0.18)";
-    seekInput.style.borderRadius = "8px";
-    seekInput.style.padding = "8px 10px";
-    seekInput.style.background = "rgba(255,255,255,0.08)";
-    seekInput.style.color = "#fff";
-    const seekButton = document.createElement("button");
-    seekButton.textContent = "Seek";
-    seekButton.style.border = "0";
-    seekButton.style.borderRadius = "8px";
-    seekButton.style.padding = "8px 12px";
-    seekButton.style.cursor = "pointer";
-    seekButton.style.font = "700 12px Segoe UI, Tahoma, sans-serif";
-    seekButton.style.background = "#0f766e";
-    seekButton.style.color = "#fff";
-    seekButton.addEventListener("click", () => {
-      command("seek", Number(seekInput.value || 0));
-    });
-    timeBar.appendChild(seekInput);
-    timeBar.appendChild(seekButton);
-    const statusLine = document.createElement("div");
-    statusLine.id = "bclt-bilibili-status";
-    statusLine.style.padding = "8px 12px 0";
-    statusLine.style.color = "rgba(243, 247, 255, 0.92)";
-    statusLine.style.font = "12px Segoe UI, Tahoma, sans-serif";
-    statusLine.textContent = "Paused @ 0:00";
-    const iframe = document.createElement("iframe");
-    iframe.src = playerUrl;
-    iframe.allow = "autoplay; fullscreen; picture-in-picture";
-    iframe.referrerPolicy = "no-referrer-when-downgrade";
-    iframe.style.display = "block";
-    iframe.style.width = "100%";
-    iframe.style.aspectRatio = "16 / 9";
-    iframe.style.border = "0";
-    iframe.style.background = "#000";
-    const footer = document.createElement("div");
-    footer.textContent = "Visible Bilibili iframe player. Playback sync for cross-origin iframe is limited unless the platform exposes a player API.";
-    footer.style.padding = "8px 12px 10px";
-    footer.style.color = "rgba(243, 247, 255, 0.82)";
-    footer.style.font = "12px Segoe UI, Tahoma, sans-serif";
-    dock.appendChild(header);
-    dock.appendChild(controls);
-    dock.appendChild(timeBar);
-    dock.appendChild(statusLine);
-    dock.appendChild(iframe);
-    dock.appendChild(footer);
-    document.body.appendChild(dock);
-    state.embedFrame = dock;
-    void hydrateBilibiliDuration(input).catch((error) => {
-      console.warn("[BCLT] failed to hydrate Bilibili duration:", error);
-    });
-    return iframe;
-  }
-  async function bilibiliCommand(action, value) {
-    const current = computeBilibiliSyntheticState();
-    switch (action) {
-      case "play":
-        reloadBilibiliEmbed({ ...current, paused: false }, "local-play");
-        break;
-      case "pause":
-        reloadBilibiliEmbed({ ...current, paused: true }, "local-pause");
-        break;
-      case "seek":
-        reloadBilibiliEmbed({ ...current, currentTime: Math.max(0, Number(value) || 0) }, "local-seek");
-        break;
-      case "step":
-        reloadBilibiliEmbed({ ...current, currentTime: Math.max(0, current.currentTime + (Number(value) || 0)) }, "local-step");
-        break;
-      case "sync-now":
-        reloadBilibiliEmbed(current, "manual-sync");
-        break;
-    }
-    await notifyLocalChange();
-  }
   function applyBilibiliRemoteSync(nextState, reason = "remote-sync") {
     const sourceUrl = nextState.sourceUrl || state.bilibili.sourceUrl || state.settings.mediaUrl;
     if (!sourceUrl) return false;
     if (!getBilibiliEmbedIframe()) {
-      if (hasRoomPlayerUi()) return false;
-      const created = createBilibiliEmbed(sourceUrl);
-      if (!created) return false;
+      return false;
     }
     const current = computeBilibiliSyntheticState();
     const incomingTime = Number.isFinite(Number(nextState.currentTime)) ? Number(nextState.currentTime) : current.currentTime;
@@ -608,10 +462,7 @@
     if (state.mediaEl) return state.mediaEl;
     const mediaUrl = state.settings.mediaUrl && state.settings.mediaUrl.trim();
     if (!mediaUrl) return null;
-    const hasRoomPlayerUi2 = !!document.querySelector("#bclt-player-container");
     if (isBilibiliUrl(mediaUrl) || parseBilibiliBvid(mediaUrl)) {
-      if (hasRoomPlayerUi2) return null;
-      createBilibiliEmbed(mediaUrl);
       return null;
     }
     const created = document.createElement(mediaUrl.match(/\.(mp4|webm|ogg)(\?|#|$)/i) ? "video" : "audio");

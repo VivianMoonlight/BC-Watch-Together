@@ -69,11 +69,8 @@ export function ensureMediaElement() {
     const mediaUrl = state.settings.mediaUrl && state.settings.mediaUrl.trim();
     if (!mediaUrl) return null;
 
-    const hasRoomPlayerUi = !!document.querySelector('#bclt-player-container');
-
     if (isBilibiliUrl(mediaUrl) || parseBilibiliBvid(mediaUrl)) {
-        if (hasRoomPlayerUi) return null;
-        createBilibiliEmbed(mediaUrl);
+        // Legacy floating Bilibili dock is deprecated; do not auto-create it.
         return null;
     }
 

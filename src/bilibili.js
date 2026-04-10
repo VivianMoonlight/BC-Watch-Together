@@ -87,10 +87,6 @@ export function getBilibiliEmbedIframe() {
     return document.querySelector('#bclt-bilibili-dock iframe');
 }
 
-function hasRoomPlayerUi() {
-    return !!document.querySelector('#bclt-player-container');
-}
-
 const BILIBILI_VIEW_API = 'https://api.bilibili.com/x/web-interface/view';
 const durationPromiseByBvid = new Map();
 const durationByBvid = new Map();
@@ -485,11 +481,8 @@ export function applyBilibiliRemoteSync(nextState, reason = 'remote-sync') {
     if (!sourceUrl) return false;
 
     if (!getBilibiliEmbedIframe()) {
-        // New room player UI is active; do not re-create the legacy floating dock.
-        if (hasRoomPlayerUi()) return false;
-
-        const created = createBilibiliEmbed(sourceUrl);
-        if (!created) return false;
+        // Legacy floating Bilibili dock is deprecated; skip remote-sync fallback.
+        return false;
     }
 
     const current = computeBilibiliSyntheticState();
