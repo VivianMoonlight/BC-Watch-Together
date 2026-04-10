@@ -315,8 +315,8 @@ const SUPPORTED_LANGS = {
     en: 'EN',
 };
 
-const HQ_TAB_REMOTE_DRIFT_THRESHOLD_SECONDS = 8;
-const HQ_TAB_REMOTE_SYNC_COOLDOWN_MS = 4000;
+const HQ_TAB_REMOTE_DRIFT_THRESHOLD_SECONDS = 12;
+const HQ_TAB_REMOTE_SYNC_COOLDOWN_MS = 10000;
 
 const I18N = {
     zh: {
@@ -696,6 +696,26 @@ function readBilibiliPageFromUrl(sourceUrl) {
         return Number.isFinite(page) && page > 0 ? Math.floor(page) : 1;
     } catch (error) {
         return 1;
+    }
+}
+
+function normalizeBilibiliSourceForSync(sourceUrl) {
+    const source = String(sourceUrl || '').trim();
+    if (!source) return '';
+
+    const bvid = parseBilibiliBvid(source);
+    if (bvid) {
+        return `bvid:${String(bvid).toUpperCase()}:p${readBilibiliPageFromUrl(source)}`;
+    }
+
+    try {
+        const url = new URL(source);
+        url.searchParams.delete('t');
+        url.searchParams.delete('autoplay');
+        url.hash = '';
+        return url.toString();
+    } catch (error) {
+        return source;
     }
 }
 
@@ -3167,7 +3187,7 @@ async function applyRoomPlaybackState(nextState, options = {}) {
 
     const thresholdSeconds = Math.max(0.1, Number(state.settings.driftThresholdMs || 800) / 1000);
     const driftSeconds = Math.abs(targetTime - current.currentTime);
-    const sourceChanged = sourceUrl !== current.sourceUrl;
+    const sourceChanged = normalizeBilibiliSourceForSync(sourceUrl) !== normalizeBilibiliSourceForSync(current.sourceUrl);
     const pausedChanged = incomingPaused !== current.paused;
     const rateChanged = incomingRate !== current.playbackRate;
     const isRemoteSyncReason = reason === 'remote-sync' || reason === 'remote-playlist-state';

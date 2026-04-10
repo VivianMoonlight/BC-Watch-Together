@@ -100,6 +100,36 @@ function readPageIndexFromSource(input) {
     }
 }
 
+export function normalizeBilibiliSourceUrl(input) {
+    const text = String(input || '').trim();
+    if (!text) return '';
+
+    const bvid = parseBilibiliBvid(text);
+    if (bvid) {
+        const page = readPageIndexFromSource(text);
+        const url = new URL(`https://www.bilibili.com/video/${String(bvid).toUpperCase()}/`);
+        if (page > 1) {
+            url.searchParams.set('p', String(page));
+        }
+        return url.toString();
+    }
+
+    if (!isBilibiliUrl(text)) {
+        return text;
+    }
+
+    try {
+        const url = new URL(text);
+        ['t', 'autoplay', 'vd_source', 'spm_id_from', 'from_spmid', 'share_source', 'share_medium'].forEach((key) => {
+            url.searchParams.delete(key);
+        });
+        url.hash = '';
+        return url.toString();
+    } catch (error) {
+        return text;
+    }
+}
+
 function extractDurationSecondsFromViewPayload(payload, sourceUrl) {
     const data = payload && payload.data ? payload.data : null;
     if (!data) return null;
@@ -225,11 +255,12 @@ async function fetchBilibiliDuration(bvid, sourceUrl) {
 }
 
 export async function hydrateBilibiliDuration(sourceUrl) {
-    const bvid = parseBilibiliBvid(sourceUrl);
+    const normalizedSource = normalizeBilibiliSourceUrl(sourceUrl);
+    const bvid = parseBilibiliBvid(normalizedSource);
     if (!bvid) return null;
 
-    const duration = await fetchBilibiliDuration(bvid, sourceUrl);
-    if (sourceUrl === state.bilibili.sourceUrl && Number.isFinite(duration) && duration > 0) {
+    const duration = await fetchBilibiliDuration(bvid, normalizedSource);
+    if (normalizedSource === state.bilibili.sourceUrl && Number.isFinite(duration) && duration > 0) {
         state.bilibili.duration = Math.max(1, Math.floor(duration));
     }
 
@@ -262,7 +293,7 @@ export function updateBilibiliDockStatus() {
 }
 
 export function setBilibiliSyntheticState(nextState, reason = 'sync') {
-    const sourceUrl = nextState.sourceUrl || state.bilibili.sourceUrl || state.settings.mediaUrl;
+    const sourceUrl = normalizeBilibiliSourceUrl(nextState.sourceUrl || state.bilibili.sourceUrl || state.settings.mediaUrl);
     if (!sourceUrl) return false;
 
     const sourceChanged = sourceUrl !== state.bilibili.sourceUrl;
@@ -308,7 +339,8 @@ export function reloadBilibiliEmbed(nextState, reason = 'sync') {
 }
 
 export function createBilibiliEmbed(input) {
-    const playerUrl = buildBilibiliPlayerUrl(input, {
+    const normalizedInput = normalizeBilibiliSourceUrl(input);
+    const playerUrl = buildBilibiliPlayerUrl(normalizedInput, {
         currentTime: state.bilibili.currentTime,
         autoplay: !state.bilibili.paused,
     });
@@ -316,8 +348,8 @@ export function createBilibiliEmbed(input) {
 
     removeBilibiliEmbed();
 
-    state.bilibili.sourceUrl = input;
-    state.bilibili.bvid = parseBilibiliBvid(input) || '';
+    state.bilibili.sourceUrl = normalizedInput;
+    state.bilibili.bvid = parseBilibiliBvid(normalizedInput) || '';
     state.bilibili.currentTime = state.bilibili.currentTime || 0;
     state.bilibili.duration = null;
     state.bilibili.paused = true;
@@ -442,7 +474,7 @@ export function createBilibiliEmbed(input) {
     document.body.appendChild(dock);
 
     state.embedFrame = dock;
-    void hydrateBilibiliDuration(input).catch((error) => {
+    void hydrateBilibiliDuration(normalizedInput).catch((error) => {
         console.warn('[BCLT] failed to hydrate Bilibili duration:', error);
     });
     return iframe;
@@ -474,7 +506,7 @@ export async function bilibiliCommand(action, value) {
 }
 
 export function applyBilibiliRemoteSync(nextState, reason = 'remote-sync') {
-    const sourceUrl = nextState.sourceUrl || state.bilibili.sourceUrl || state.settings.mediaUrl;
+    const sourceUrl = normalizeBilibiliSourceUrl(nextState.sourceUrl || state.bilibili.sourceUrl || state.settings.mediaUrl);
     if (!sourceUrl) return false;
 
     if (!getBilibiliEmbedIframe()) {

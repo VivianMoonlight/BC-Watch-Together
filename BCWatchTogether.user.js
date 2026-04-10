@@ -203,6 +203,32 @@
       return 1;
     }
   }
+  function normalizeBilibiliSourceUrl(input) {
+    const text = String(input || "").trim();
+    if (!text) return "";
+    const bvid = parseBilibiliBvid(text);
+    if (bvid) {
+      const page = readPageIndexFromSource(text);
+      const url = new URL(`https://www.bilibili.com/video/${String(bvid).toUpperCase()}/`);
+      if (page > 1) {
+        url.searchParams.set("p", String(page));
+      }
+      return url.toString();
+    }
+    if (!isBilibiliUrl(text)) {
+      return text;
+    }
+    try {
+      const url = new URL(text);
+      ["t", "autoplay", "vd_source", "spm_id_from", "from_spmid", "share_source", "share_medium"].forEach((key) => {
+        url.searchParams.delete(key);
+      });
+      url.hash = "";
+      return url.toString();
+    } catch (error) {
+      return text;
+    }
+  }
   function extractDurationSecondsFromViewPayload(payload, sourceUrl) {
     var _a;
     const data = payload && payload.data ? payload.data : null;
@@ -307,10 +333,11 @@
     }
   }
   async function hydrateBilibiliDuration(sourceUrl) {
-    const bvid = parseBilibiliBvid(sourceUrl);
+    const normalizedSource = normalizeBilibiliSourceUrl(sourceUrl);
+    const bvid = parseBilibiliBvid(normalizedSource);
     if (!bvid) return null;
-    const duration = await fetchBilibiliDuration(bvid, sourceUrl);
-    if (sourceUrl === state.bilibili.sourceUrl && Number.isFinite(duration) && duration > 0) {
+    const duration = await fetchBilibiliDuration(bvid, normalizedSource);
+    if (normalizedSource === state.bilibili.sourceUrl && Number.isFinite(duration) && duration > 0) {
       state.bilibili.duration = Math.max(1, Math.floor(duration));
     }
     return duration;
@@ -334,7 +361,7 @@
     status.textContent = `${current.paused ? "Paused" : "Playing"} @ ${secondsToHms(current.currentTime)}`;
   }
   function setBilibiliSyntheticState(nextState, reason = "sync") {
-    const sourceUrl = nextState.sourceUrl || state.bilibili.sourceUrl || state.settings.mediaUrl;
+    const sourceUrl = normalizeBilibiliSourceUrl(nextState.sourceUrl || state.bilibili.sourceUrl || state.settings.mediaUrl);
     if (!sourceUrl) return false;
     const sourceChanged = sourceUrl !== state.bilibili.sourceUrl;
     const currentTime = Number.isFinite(Number(nextState.currentTime)) ? Number(nextState.currentTime) : state.bilibili.currentTime;
@@ -368,7 +395,7 @@
     return true;
   }
   function applyBilibiliRemoteSync(nextState, reason = "remote-sync") {
-    const sourceUrl = nextState.sourceUrl || state.bilibili.sourceUrl || state.settings.mediaUrl;
+    const sourceUrl = normalizeBilibiliSourceUrl(nextState.sourceUrl || state.bilibili.sourceUrl || state.settings.mediaUrl);
     if (!sourceUrl) return false;
     if (!getBilibiliEmbedIframe()) {
       return false;
@@ -1357,8 +1384,8 @@
     zh: "中文",
     en: "EN"
   };
-  const HQ_TAB_REMOTE_DRIFT_THRESHOLD_SECONDS = 8;
-  const HQ_TAB_REMOTE_SYNC_COOLDOWN_MS = 4e3;
+  const HQ_TAB_REMOTE_DRIFT_THRESHOLD_SECONDS = 12;
+  const HQ_TAB_REMOTE_SYNC_COOLDOWN_MS = 1e4;
   const I18N = {
     zh: {
       mode_list_loop: "列表循环",
@@ -1707,6 +1734,23 @@
       return Number.isFinite(page) && page > 0 ? Math.floor(page) : 1;
     } catch (error) {
       return 1;
+    }
+  }
+  function normalizeBilibiliSourceForSync(sourceUrl) {
+    const source = String(sourceUrl || "").trim();
+    if (!source) return "";
+    const bvid = parseBilibiliBvid(source);
+    if (bvid) {
+      return `bvid:${String(bvid).toUpperCase()}:p${readBilibiliPageFromUrl(source)}`;
+    }
+    try {
+      const url = new URL(source);
+      url.searchParams.delete("t");
+      url.searchParams.delete("autoplay");
+      url.hash = "";
+      return url.toString();
+    } catch (error) {
+      return source;
     }
   }
   function buildBilibiliWatchUrl(sourceUrl, currentTime = 0, { autoplay = true } = {}) {
@@ -3953,7 +3997,7 @@
     if (!playerContainer) return false;
     const thresholdSeconds = Math.max(0.1, Number(state.settings.driftThresholdMs || 800) / 1e3);
     const driftSeconds = Math.abs(targetTime - current.currentTime);
-    const sourceChanged = sourceUrl !== current.sourceUrl;
+    const sourceChanged = normalizeBilibiliSourceForSync(sourceUrl) !== normalizeBilibiliSourceForSync(current.sourceUrl);
     const pausedChanged = incomingPaused !== current.paused;
     const rateChanged = incomingRate !== current.playbackRate;
     const isRemoteSyncReason = reason === "remote-sync" || reason === "remote-playlist-state";
