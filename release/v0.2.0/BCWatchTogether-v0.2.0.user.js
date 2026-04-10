@@ -209,7 +209,7 @@
     const bvid = parseBilibiliBvid(text);
     if (bvid) {
       const page = readPageIndexFromSource(text);
-      const url = new URL(`https://www.bilibili.com/video/${String(bvid).toUpperCase()}/`);
+      const url = new URL(`https://www.bilibili.com/video/${String(bvid)}/`);
       if (page > 1) {
         url.searchParams.set("p", String(page));
       }
@@ -1741,7 +1741,7 @@
     if (!source) return "";
     const bvid = parseBilibiliBvid(source);
     if (bvid) {
-      return `bvid:${String(bvid).toUpperCase()}:p${readBilibiliPageFromUrl(source)}`;
+      return `bvid:${String(bvid)}:p${readBilibiliPageFromUrl(source)}`;
     }
     try {
       const url = new URL(source);

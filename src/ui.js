@@ -705,7 +705,7 @@ function normalizeBilibiliSourceForSync(sourceUrl) {
 
     const bvid = parseBilibiliBvid(source);
     if (bvid) {
-        return `bvid:${String(bvid).toUpperCase()}:p${readBilibiliPageFromUrl(source)}`;
+        return `bvid:${String(bvid)}:p${readBilibiliPageFromUrl(source)}`;
     }
 
     try {

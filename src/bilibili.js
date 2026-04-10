@@ -107,7 +107,7 @@ export function normalizeBilibiliSourceUrl(input) {
     const bvid = parseBilibiliBvid(text);
     if (bvid) {
         const page = readPageIndexFromSource(text);
-        const url = new URL(`https://www.bilibili.com/video/${String(bvid).toUpperCase()}/`);
+        const url = new URL(`https://www.bilibili.com/video/${String(bvid)}/`);
         if (page > 1) {
             url.searchParams.set('p', String(page));
         }
