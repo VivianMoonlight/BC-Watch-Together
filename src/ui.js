@@ -296,6 +296,7 @@ let playbackSeekMaxSeconds = 3600;
 let autoAdvanceTriggerToken = '';
 let autoAdvanceInFlight = false;
 let highQualityPlaybackTab = null;
+let highQualityTabLastSyncAt = 0;
 let nowPlayingHighlightToken = '';
 const bilibiliVideoTitleTaskByBvid = new Map();
 let isDraggingMainButton = false;
@@ -313,6 +314,9 @@ const SUPPORTED_LANGS = {
     zh: '中文',
     en: 'EN',
 };
+
+const HQ_TAB_REMOTE_DRIFT_THRESHOLD_SECONDS = 8;
+const HQ_TAB_REMOTE_SYNC_COOLDOWN_MS = 4000;
 
 const I18N = {
     zh: {
@@ -3164,7 +3168,10 @@ async function applyRoomPlaybackState(nextState, options = {}) {
     const sourceChanged = sourceUrl !== current.sourceUrl;
     const pausedChanged = incomingPaused !== current.paused;
     const rateChanged = incomingRate !== current.playbackRate;
-    const shouldReload = forceReload || !iframeEl || sourceChanged || pausedChanged || rateChanged || (syncProgress && driftSeconds > thresholdSeconds);
+    const isRemoteSyncReason = reason === 'remote-sync' || reason === 'remote-playlist-state';
+    const shouldReloadByState = forceReload || !iframeEl || sourceChanged || pausedChanged || rateChanged;
+    const shouldReloadByDrift = syncProgress && driftSeconds > thresholdSeconds;
+    let shouldReload = shouldReloadByState || shouldReloadByDrift;
 
     setBilibiliSyntheticState({
         sourceUrl,
@@ -3190,6 +3197,14 @@ async function applyRoomPlaybackState(nextState, options = {}) {
     }
 
     if (isHighQualityTabModeEnabled()) {
+        if (!shouldReloadByState && shouldReloadByDrift && isRemoteSyncReason) {
+            const hqDriftThreshold = Math.max(HQ_TAB_REMOTE_DRIFT_THRESHOLD_SECONDS, thresholdSeconds);
+            const now = Date.now();
+            const inCooldown = now - highQualityTabLastSyncAt < HQ_TAB_REMOTE_SYNC_COOLDOWN_MS;
+            const exceedsHqThreshold = driftSeconds > hqDriftThreshold;
+            shouldReload = !inCooldown && exceedsHqThreshold;
+        }
+
         renderHighQualityPlaceholder();
         console.log('[BCLT] High-quality tab mode enabled, shouldReload:', shouldReload);
         if (shouldReload) {
@@ -3197,6 +3212,7 @@ async function applyRoomPlaybackState(nextState, options = {}) {
                 console.log('[BCLT] HQ mode paused: closing popup window instead of relying on autoplay flag.');
                 closeHighQualityPlaybackTab();
                 updatePlaybackUi(t('hq_paused_parked'));
+                highQualityTabLastSyncAt = Date.now();
             } else {
                 console.log('[BCLT] Attempting to update or open high-quality playback tab...');
                 const result = updateOrOpenHighQualityPlaybackTab(sourceUrl, targetTime, { autoplay: true });
@@ -3207,6 +3223,7 @@ async function applyRoomPlaybackState(nextState, options = {}) {
                 } else {
                     const actionText = result.action === 'updated' ? 'Updated' : 'Opened';
                     updatePlaybackUi(`${actionText} in Bilibili: ${result.watchUrl.split('/').slice(-1)[0]}`);
+                    highQualityTabLastSyncAt = Date.now();
                 }
             }
         } else {

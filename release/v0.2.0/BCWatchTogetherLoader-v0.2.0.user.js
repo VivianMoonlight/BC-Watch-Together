@@ -21,10 +21,10 @@
 (function () {
     'use strict';
 
-    // Use GitHub raw sources only to avoid stale CDN caches. Execute via Blob to avoid MIME restrictions.
+    // Primary source (raw) plus CDN fallback. We execute via Blob to avoid MIME restrictions.
     const REMOTE_ENTRY_URLS = [
         'https://raw.githubusercontent.com/VivianMoonlight/BC-Watch-Together/main/BCWatchTogether.user.js',
-        'https://raw.githubusercontent.com/VivianMoonlight/BC-Watch-Together/main/dist/BCWatchTogether.user.js',
+        'https://cdn.jsdelivr.net/gh/VivianMoonlight/BC-Watch-Together@main/BCWatchTogether.user.js',
     ];
 
     const SYSTEMJS_URLS = [
@@ -84,7 +84,6 @@
                 const script = document.createElement('script');
                 script.src = blobUrl;
                 script.onload = () => {
-                    console.log('[BCWT] Remote entry loaded from', baseUrl);
                     URL.revokeObjectURL(blobUrl);
                     script.remove();
                 };
