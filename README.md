@@ -31,11 +31,11 @@
 2. **安装 Loader 脚本**  
    点击下方按钮在新标签页安装 loader：
 
-   📦 **[安装 BC Watch Together Loader](https://github.com/VivianMoonlight/BC-Watch-Together/raw/main/loader.user.js)**
+   📦 **[安装 BC Watch Together Loader](https://raw.githubusercontent.com/VivianMoonlight/BC-Watch-Together/main/loader.user.js)**
 
    或手动复制 loader URL 到管理器中：
    ```
-   https://github.com/VivianMoonlight/BC-Watch-Together/raw/main/loader.user.js
+   https://raw.githubusercontent.com/VivianMoonlight/BC-Watch-Together/main/loader.user.js
    ```
 
 3. **打开 Bondage Club**  
@@ -177,11 +177,11 @@ A: 尝试：
 2. **Install Loader Script**  
    Click the button below to install the loader in a new tab:
 
-   📦 **[Install BC Watch Together Loader](https://github.com/VivianMoonlight/BC-Watch-Together/raw/main/loader.user.js)**
+   📦 **[Install BC Watch Together Loader](https://raw.githubusercontent.com/VivianMoonlight/BC-Watch-Together/main/loader.user.js)**
 
    Or manually copy the loader URL into your manager:
    ```
-   https://github.com/VivianMoonlight/BC-Watch-Together/raw/main/loader.user.js
+   https://raw.githubusercontent.com/VivianMoonlight/BC-Watch-Together/main/loader.user.js
    ```
 
 3. **Open Bondage Club**  
