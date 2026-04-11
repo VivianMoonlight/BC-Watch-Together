@@ -12,12 +12,31 @@ let joinSessionNonce = 0;
 const HOST_OFFLINE_FALLBACK_MS = 30000;
 const HOST_FALLBACK_ACTIVE_WINDOW_MS = 60000;
 const HOST_FALLBACK_COOLDOWN_MS = 12000;
+const ACTIVE_MEMBER_WINDOW_MS = 60 * 1000;
+const ROOM_ORPHAN_CLEANUP_MS = 90 * 1000;
 
 function buildChannelTopicRoomPart(roomId) {
     const raw = String(roomId || '').trim();
     if (!raw) return 'room';
     // Keep channel topic ASCII-safe to avoid provider-side topic parsing issues.
     return encodeURIComponent(raw).replace(/%/g, '_');
+}
+
+function parseTimestampMs(value) {
+    const ts = new Date(value || '').getTime();
+    return Number.isFinite(ts) ? ts : NaN;
+}
+
+function isRecentActivity(lastSeenAt, activeWindowMs = ACTIVE_MEMBER_WINDOW_MS) {
+    const ts = parseTimestampMs(lastSeenAt);
+    if (!Number.isFinite(ts)) return false;
+    return ts >= Date.now() - Math.max(5000, Number(activeWindowMs) || ACTIVE_MEMBER_WINDOW_MS);
+}
+
+function shouldCleanupOrphanRoom(room) {
+    const updatedAtMs = parseTimestampMs(room?.updated_at) || parseTimestampMs(room?.created_at);
+    if (!Number.isFinite(updatedAtMs)) return false;
+    return Date.now() - updatedAtMs > ROOM_ORPHAN_CLEANUP_MS;
 }
 
 const SUPABASE_UMD_URLS = [
@@ -284,6 +303,77 @@ async function upsertRoomMember(client) {
     }
 }
 
+async function deleteRoomCascade(client, roomId) {
+    const normalizedRoomId = String(roomId || '').trim();
+    if (!normalizedRoomId) return false;
+
+    const { error: clearMembersError } = await client
+        .from('bclt_room_members')
+        .delete()
+        .eq('room_id', normalizedRoomId);
+    if (clearMembersError) {
+        console.warn('[BCLT] delete room members failed:', clearMembersError.message);
+        return false;
+    }
+
+    const { error: clearStateError } = await client
+        .from('bclt_room_states')
+        .delete()
+        .eq('room_id', normalizedRoomId);
+    if (clearStateError) {
+        console.warn('[BCLT] delete room state failed:', clearStateError.message);
+    }
+
+    const { error: deleteRoomError } = await client
+        .from('bclt_rooms')
+        .delete()
+        .eq('room_id', normalizedRoomId);
+    if (deleteRoomError) {
+        console.warn('[BCLT] delete room failed:', deleteRoomError.message);
+        return false;
+    }
+
+    return true;
+}
+
+async function cleanupRoomIfNoActiveMembers(client, roomId, activeWindowMs = ACTIVE_MEMBER_WINDOW_MS) {
+    const normalizedRoomId = String(roomId || '').trim();
+    if (!normalizedRoomId) return false;
+
+    const { data: members, error: membersError } = await client
+        .from('bclt_room_members')
+        .select('member_id, last_seen_at')
+        .eq('room_id', normalizedRoomId);
+
+    if (membersError) {
+        console.warn('[BCLT] read room members for cleanup failed:', membersError.message);
+        return false;
+    }
+
+    const rows = Array.isArray(members) ? members : [];
+    const hasActiveMember = rows.some((row) => isRecentActivity(row.last_seen_at, activeWindowMs));
+    if (hasActiveMember) {
+        return false;
+    }
+
+    return deleteRoomCascade(client, normalizedRoomId);
+}
+
+async function cleanupOrphanRooms(client, rooms, activeMemberCounts) {
+    if (!Array.isArray(rooms) || rooms.length === 0) return;
+
+    const candidates = rooms
+        .filter((room) => (activeMemberCounts.get(room.room_id) || 0) === 0)
+        .filter((room) => shouldCleanupOrphanRoom(room))
+        .map((room) => room.room_id)
+        .filter((id) => !!String(id || '').trim())
+        .slice(0, 8);
+
+    for (const roomId of candidates) {
+        await cleanupRoomIfNoActiveMembers(client, roomId, ACTIVE_MEMBER_WINDOW_MS);
+    }
+}
+
 export async function createRoomRecord() {
     if (!state.settings.roomId) {
         throw new Error('Missing room ID');
@@ -308,21 +398,17 @@ export async function createRoomRecord() {
         if (normalizedCode === '23505') {
             const { data: existingMembers, error: existingMembersError } = await client
                 .from('bclt_room_members')
-                .select('member_id')
+                .select('member_id, last_seen_at')
                 .eq('room_id', state.settings.roomId);
 
             if (existingMembersError) {
                 throw new Error(`Create room failed: ${existingMembersError.message}`);
             }
 
-            const hasAnyMemberRow = Array.isArray(existingMembers) && existingMembers.length > 0;
-            if (hasAnyMemberRow) {
+            const rows = Array.isArray(existingMembers) ? existingMembers : [];
+            const hasActiveMember = rows.some((row) => isRecentActivity(row.last_seen_at, ACTIVE_MEMBER_WINDOW_MS));
+            if (hasActiveMember) {
                 throw new Error('Room name already exists. Please choose another room name.');
-            }
-
-            const { error: replaceRoomError } = await client.from('bclt_rooms').upsert(roomRow, { onConflict: 'room_id' });
-            if (replaceRoomError) {
-                throw new Error(`Replace empty room failed: ${replaceRoomError.message}`);
             }
 
             const { error: clearMembersError } = await client
@@ -332,6 +418,11 @@ export async function createRoomRecord() {
 
             if (clearMembersError) {
                 throw new Error(`Replace empty room failed: ${clearMembersError.message}`);
+            }
+
+            const { error: replaceRoomError } = await client.from('bclt_rooms').upsert(roomRow, { onConflict: 'room_id' });
+            if (replaceRoomError) {
+                throw new Error(`Replace empty room failed: ${replaceRoomError.message}`);
             }
         } else {
             throw new Error(`Create room failed: ${roomError.message}`);
@@ -382,10 +473,8 @@ export async function fetchAvailableRooms() {
             .in('room_id', roomIds);
 
         if (!memberError && members) {
-            const activeAfterMs = Date.now() - 60 * 1000;
             members.forEach((m) => {
-                const lastSeen = new Date(m.last_seen_at).getTime();
-                if (!Number.isFinite(lastSeen) || lastSeen < activeAfterMs) return;
+                if (!isRecentActivity(m.last_seen_at, ACTIVE_MEMBER_WINDOW_MS)) return;
                 memberCounts.set(m.room_id, (memberCounts.get(m.room_id) || 0) + 1);
                 if (m.is_host && m.display_name && !hostDisplayNames.has(m.room_id)) {
                     hostDisplayNames.set(m.room_id, m.display_name);
@@ -393,6 +482,8 @@ export async function fetchAvailableRooms() {
             });
         }
     }
+
+    await cleanupOrphanRooms(client, rooms || [], memberCounts);
 
     return (rooms || [])
         .filter((room) => (memberCounts.get(room.room_id) || 0) > 0)
@@ -577,12 +668,17 @@ export async function leaveRoom() {
     const client = state.supabase || await getSupabaseClient();
 
     try {
+        let hostTransferred = false;
         if (state.settings.roomId) {
             if (state.settings.isHost) {
-                await transferOwnershipOnHostLeave();
+                hostTransferred = await transferOwnershipOnHostLeave();
             }
 
             await removeCurrentMemberRecord(client);
+
+            if (!hostTransferred) {
+                await cleanupRoomIfNoActiveMembers(client, state.settings.roomId, ACTIVE_MEMBER_WINDOW_MS);
+            }
         }
     } catch (error) {
         console.warn('[BCLT] leaveRoom ownership cleanup failed:', error);
@@ -748,11 +844,12 @@ async function transferOwnershipOnHostLeave() {
         const fallbackTarget = candidates[0];
         try {
             await transferRoomOwnership(fallbackTarget.memberId);
-            return;
+            return true;
         } catch (error) {
             console.warn('[BCLT] transfer ownership fallback failed:', error);
         }
     }
+    return false;
 }
 
 function readMemberLastSeenMs(member) {
