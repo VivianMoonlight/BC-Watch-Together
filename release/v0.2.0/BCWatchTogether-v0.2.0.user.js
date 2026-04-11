@@ -2616,29 +2616,6 @@
             overflow: hidden;
         }
 
-        #bclt-window .immersive-hover-zone {
-            display: none;
-        }
-
-        #bclt-window.bclt-immersive-mode .immersive-hover-zone {
-            display: block;
-            position: absolute;
-            left: 0;
-            right: 0;
-            z-index: 9;
-            pointer-events: auto;
-        }
-
-        #bclt-window.bclt-immersive-mode .immersive-hover-zone-top {
-            top: 0;
-            height: 84px;
-        }
-
-        #bclt-window.bclt-immersive-mode .immersive-hover-zone-bottom {
-            bottom: 0;
-            height: 132px;
-        }
-
         #bclt-window.bclt-immersive-mode .video-stage {
             min-height: 100%;
             height: 100%;
@@ -2662,10 +2639,8 @@
             backdrop-filter: blur(8px);
         }
 
-        #bclt-window.bclt-immersive-mode .immersive-hover-zone-bottom:hover ~ .player-progress,
-        #bclt-window.bclt-immersive-mode .player-progress:hover,
-        #bclt-window.bclt-immersive-mode .immersive-hover-zone-top:hover ~ .immersive-exit-btn,
-        #bclt-window.bclt-immersive-mode .immersive-exit-btn:hover {
+        #bclt-window.bclt-immersive-mode:hover .player-progress,
+        #bclt-window.bclt-immersive-mode:hover .immersive-exit-btn {
             opacity: 1;
             transform: translateY(0);
             pointer-events: auto;
@@ -3570,7 +3545,7 @@
             color: #d7ffe8;
         }
 
-        #bclt-window .player-panel.sync-locked .player-progress,
+        #bclt-window:not(.bclt-immersive-mode) .player-panel.sync-locked .player-progress,
         #bclt-window .video-list.sync-locked .video-list-content {
             opacity: 0.55;
         }
@@ -3979,7 +3954,6 @@
                 <div id="bclt-player-container" class="video-stage">
                     <div class="empty-state">${t("player_no_video_playing")}</div>
                 </div>
-                <div class="immersive-hover-zone immersive-hover-zone-top" aria-hidden="true"></div>
                 <button id="bclt-btn-exit-immersive" class="immersive-exit-btn" type="button" title="${t("immersive_exit")}">${t("immersive_exit")}</button>
                 <div class="player-room-tools">
                     <label class="sync-progress-toggle" for="bclt-sync-progress">
@@ -3995,7 +3969,6 @@
                         <span>${t("player_immersive_mode")}</span>
                     </label>
                 </div>
-                <div class="immersive-hover-zone immersive-hover-zone-bottom" aria-hidden="true"></div>
                 <div class="player-progress">
                     <div class="player-progress-track">
                         <button id="bclt-btn-toggle-play" class="media-toggle-btn" type="button" title="Play">▶</button>
