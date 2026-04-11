@@ -1621,6 +1621,10 @@
       player_no_video_playing: "当前未播放视频",
       player_sync_progress: "同步播放进度",
       player_hq_mode: "高画质标签页模式（GM_openInTab）",
+      player_immersive_mode: "沉浸模式（仅播放器）",
+      immersive_exit: "退出沉浸",
+      immersive_mode_on: "沉浸模式已开启",
+      immersive_mode_off: "沉浸模式已关闭",
       player_status_ready: "准备就绪",
       player_shared_videos: "共享视频",
       player_add_placeholder: "粘贴 Bilibili 链接或 BV 号",
@@ -1722,6 +1726,10 @@
       player_no_video_playing: "No video playing",
       player_sync_progress: "Sync Playback Progress",
       player_hq_mode: "High-Quality Tab Mode (GM_openInTab)",
+      player_immersive_mode: "Immersive Mode (Player Only)",
+      immersive_exit: "Exit Immersive",
+      immersive_mode_on: "Immersive mode on",
+      immersive_mode_off: "Immersive mode off",
       player_status_ready: "Ready",
       player_shared_videos: "Shared Videos",
       player_add_placeholder: "Paste Bilibili URL or BV",
@@ -1833,6 +1841,13 @@
     if (syncLabel) syncLabel.textContent = t("player_sync_progress");
     const hqLabel = content.querySelector('label[for="bclt-hq-tab-mode"] span');
     if (hqLabel) hqLabel.textContent = t("player_hq_mode");
+    const immersiveLabel = content.querySelector('label[for="bclt-immersive-mode"] span');
+    if (immersiveLabel) immersiveLabel.textContent = t("player_immersive_mode");
+    const immersiveExitBtn = content.querySelector("#bclt-btn-exit-immersive");
+    if (immersiveExitBtn) {
+      immersiveExitBtn.textContent = t("immersive_exit");
+      immersiveExitBtn.title = t("immersive_exit");
+    }
     const videoTitleEl = content.querySelector(".video-list-title");
     if (videoTitleEl) videoTitleEl.textContent = t("player_shared_videos");
     const addBtn = content.querySelector("#bclt-btn-add-video");
@@ -1899,6 +1914,35 @@
   }
   function isHighQualityTabModeEnabled() {
     return state.settings.highQualityTabMode === true;
+  }
+  function isImmersiveModeEnabled() {
+    return state.settings.immersiveMode === true;
+  }
+  function applyImmersiveModeUi(enabled) {
+    if (!(windowInstance == null ? void 0 : windowInstance.container)) return;
+    const immersive = !!enabled;
+    windowInstance.container.classList.toggle("bclt-immersive-mode", immersive);
+    if (immersive) {
+      resizeWindowForMode(960, 600);
+    } else {
+      resizeWindowForMode(1e3, 680);
+    }
+  }
+  function setImmersiveMode(enabled, options = {}) {
+    var _a, _b;
+    const { save = true, statusHint = "" } = options;
+    const immersive = !!enabled;
+    state.settings.immersiveMode = immersive;
+    if (save) saveSettings();
+    const immersiveCheckbox = (_a = windowInstance == null ? void 0 : windowInstance.content) == null ? void 0 : _a.querySelector("#bclt-immersive-mode");
+    if (immersiveCheckbox) immersiveCheckbox.checked = immersive;
+    const exitBtn = (_b = windowInstance == null ? void 0 : windowInstance.content) == null ? void 0 : _b.querySelector("#bclt-btn-exit-immersive");
+    if (exitBtn) {
+      exitBtn.textContent = t("immersive_exit");
+      exitBtn.title = t("immersive_exit");
+    }
+    applyImmersiveModeUi(immersive);
+    if (statusHint) updatePlaybackUi(statusHint);
   }
   function closeHighQualityPlaybackTab(options = {}) {
     const { destroySession = false, blankUrl = "about:blank" } = options;
@@ -2543,6 +2587,95 @@
         #bclt-window.bclt-player-mode {
             backdrop-filter: none !important;
             -webkit-backdrop-filter: none !important;
+        }
+
+        #bclt-window.bclt-immersive-mode .bclt-window-header {
+            display: none;
+        }
+
+        #bclt-window.bclt-immersive-mode .bclt-window-content {
+            padding: 0;
+            background: #000;
+        }
+
+        #bclt-window.bclt-immersive-mode .player-container {
+            grid-template-columns: 1fr;
+            gap: 0;
+        }
+
+        #bclt-window.bclt-immersive-mode .video-list,
+        #bclt-window.bclt-immersive-mode .player-room-tools,
+        #bclt-window.bclt-immersive-mode #bclt-player-status {
+            display: none;
+        }
+
+        #bclt-window.bclt-immersive-mode .player-panel {
+            position: relative;
+            gap: 0;
+            border-radius: 0;
+            overflow: hidden;
+        }
+
+        #bclt-window.bclt-immersive-mode .video-stage {
+            min-height: 100%;
+            height: 100%;
+            border: none;
+            border-radius: 0;
+            box-shadow: none;
+        }
+
+        #bclt-window.bclt-immersive-mode .player-progress {
+            position: absolute;
+            left: 16px;
+            right: 16px;
+            bottom: 16px;
+            z-index: 8;
+            opacity: 0;
+            transform: translateY(10px);
+            pointer-events: none;
+            transition: opacity 0.2s ease, transform 0.2s ease;
+            background: rgba(6, 16, 30, 0.8);
+            border-color: rgba(148, 184, 255, 0.34);
+            backdrop-filter: blur(8px);
+        }
+
+        #bclt-window.bclt-immersive-mode:hover .player-progress,
+        #bclt-window.bclt-immersive-mode:hover .immersive-exit-btn {
+            opacity: 1;
+            transform: translateY(0);
+            pointer-events: auto;
+        }
+
+        #bclt-window .immersive-exit-btn {
+            display: none;
+        }
+
+        #bclt-window.bclt-immersive-mode .immersive-exit-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            z-index: 8;
+            height: 32px;
+            padding: 0 12px;
+            border-radius: 999px;
+            border: 1px solid rgba(244, 114, 182, 0.45);
+            background: rgba(15, 23, 42, 0.68);
+            color: #fce7f3;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            opacity: 0;
+            transform: translateY(-8px);
+            pointer-events: none;
+            transition: opacity 0.2s ease, transform 0.2s ease, filter 0.18s ease;
+            backdrop-filter: blur(6px);
+        }
+
+        #bclt-window.bclt-immersive-mode .immersive-exit-btn:hover {
+            filter: brightness(1.08);
         }
 
         #bclt-window::before {
@@ -3506,7 +3639,7 @@
     logStatus(t("ready"));
   }
   function showRoomListMode() {
-    var _a, _b, _c;
+    var _a, _b, _c, _d;
     const roomTitle = t("window_rooms_title");
     if (!windowInstance) {
       windowInstance = new DraggableWindow({
@@ -3519,9 +3652,10 @@
     }
     windowInstance.setTitle(roomTitle);
     (_a = windowInstance.container) == null ? void 0 : _a.classList.remove("bclt-player-mode");
-    const toolbarLeaveBtn = (_b = windowInstance.headerEl) == null ? void 0 : _b.querySelector("#bclt-toolbar-leave");
+    (_b = windowInstance.container) == null ? void 0 : _b.classList.remove("bclt-immersive-mode");
+    const toolbarLeaveBtn = (_c = windowInstance.headerEl) == null ? void 0 : _c.querySelector("#bclt-toolbar-leave");
     if (toolbarLeaveBtn) toolbarLeaveBtn.remove();
-    const toolbarRoomName = (_c = windowInstance.headerEl) == null ? void 0 : _c.querySelector("#bclt-toolbar-room-name");
+    const toolbarRoomName = (_d = windowInstance.headerEl) == null ? void 0 : _d.querySelector("#bclt-toolbar-room-name");
     if (toolbarRoomName) toolbarRoomName.remove();
     closeHighQualityPlaybackTab({ destroySession: true });
     resizeWindowForMode(460, 620);
@@ -3820,6 +3954,7 @@
                 <div id="bclt-player-container" class="video-stage">
                     <div class="empty-state">${t("player_no_video_playing")}</div>
                 </div>
+                <button id="bclt-btn-exit-immersive" class="immersive-exit-btn" type="button" title="${t("immersive_exit")}">${t("immersive_exit")}</button>
                 <div class="player-room-tools">
                     <label class="sync-progress-toggle" for="bclt-sync-progress">
                         <input id="bclt-sync-progress" type="checkbox" />
@@ -3828,6 +3963,10 @@
                     <label class="sync-progress-toggle" for="bclt-hq-tab-mode">
                         <input id="bclt-hq-tab-mode" type="checkbox" />
                         <span>${t("player_hq_mode")}</span>
+                    </label>
+                    <label class="sync-progress-toggle" for="bclt-immersive-mode">
+                        <input id="bclt-immersive-mode" type="checkbox" />
+                        <span>${t("player_immersive_mode")}</span>
                     </label>
                 </div>
                 <div class="player-progress">
@@ -3897,6 +4036,8 @@
     windowInstance.content.querySelector("#bclt-player-status");
     const syncProgressCheckbox = windowInstance.content.querySelector("#bclt-sync-progress");
     const highQualityModeCheckbox = windowInstance.content.querySelector("#bclt-hq-tab-mode");
+    const immersiveModeCheckbox = windowInstance.content.querySelector("#bclt-immersive-mode");
+    const immersiveExitBtn = windowInstance.content.querySelector("#bclt-btn-exit-immersive");
     const addVideoInput = windowInstance.content.querySelector("#bclt-add-video-input");
     const addVideoBtn = windowInstance.content.querySelector("#bclt-btn-add-video");
     const importPlaylistBtn = windowInstance.content.querySelector("#bclt-btn-import-playlist");
@@ -3906,6 +4047,7 @@
     const modeButtons = windowInstance.content.querySelectorAll(".mode-slider-btn");
     syncProgressCheckbox.checked = state.settings.syncPlaybackProgress !== false;
     highQualityModeCheckbox.checked = isHighQualityTabModeEnabled();
+    immersiveModeCheckbox.checked = isImmersiveModeEnabled();
     updatePlaybackModeUi();
     refreshHostUiPrivileges();
     syncProgressCheckbox.addEventListener("change", () => {
@@ -3940,6 +4082,18 @@
         forceReload: true,
         syncProgress: state.settings.syncPlaybackProgress !== false,
         statusHint: t("hq_mode_off")
+      });
+    });
+    immersiveModeCheckbox.addEventListener("change", () => {
+      setImmersiveMode(immersiveModeCheckbox.checked, {
+        save: true,
+        statusHint: immersiveModeCheckbox.checked ? t("immersive_mode_on") : t("immersive_mode_off")
+      });
+    });
+    immersiveExitBtn.addEventListener("click", () => {
+      setImmersiveMode(false, {
+        save: true,
+        statusHint: t("immersive_mode_off")
       });
     });
     modeButtons.forEach((btn) => {
@@ -4040,6 +4194,7 @@
     if (leaveToolbarBtn) {
       leaveToolbarBtn.onclick = leaveFromToolbar;
     }
+    setImmersiveMode(isImmersiveModeEnabled(), { save: false });
     initializeRoomMode();
     windowInstance.show();
   }
