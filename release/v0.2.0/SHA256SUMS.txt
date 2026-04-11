@@ -1,1 +1,1 @@
-5c2d2028cedb03941c47175b01aa8dd920996cf8afc0384ac51c8d41c63cb50d  BCWatchTogether-v0.2.0.user.js
+4b23ba72c2703afd2261583fa87f839660ee76a5e94da6970b37c47aee4c2cb2  BCWatchTogether-v0.2.0.user.js

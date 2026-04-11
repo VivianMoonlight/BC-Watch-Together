@@ -317,6 +317,12 @@ const SUPPORTED_LANGS = {
 
 const HQ_TAB_REMOTE_DRIFT_THRESHOLD_SECONDS = 12;
 const HQ_TAB_REMOTE_SYNC_COOLDOWN_MS = 10000;
+const PLAYLIST_REQUEST_RETRY_DELAY_MS = 1500;
+const PLAYLIST_REQUEST_RETRY_MAX_ATTEMPTS = 5;
+
+let playlistSnapshotPending = false;
+let playlistRequestRetryTimer = null;
+let playlistRequestAttempts = 0;
 
 const I18N = {
     zh: {
@@ -1236,6 +1242,58 @@ function buildPlaylistStatePayload(targetMemberId = '') {
         syncProgress: syncEnabled,
         generatedAt: Date.now(),
     };
+}
+
+function resetPlaylistSnapshotRequestState() {
+    playlistSnapshotPending = false;
+    playlistRequestAttempts = 0;
+    if (playlistRequestRetryTimer) {
+        clearTimeout(playlistRequestRetryTimer);
+        playlistRequestRetryTimer = null;
+    }
+}
+
+function schedulePlaylistSnapshotRequestRetry() {
+    if (!playlistSnapshotPending) return;
+    if (state.settings.isHost) return;
+    if (!state.connected) return;
+    if (playlistRequestRetryTimer) return;
+    if (playlistRequestAttempts >= PLAYLIST_REQUEST_RETRY_MAX_ATTEMPTS) return;
+
+    playlistRequestRetryTimer = window.setTimeout(async () => {
+        playlistRequestRetryTimer = null;
+        if (!playlistSnapshotPending || state.settings.isHost || !state.connected) return;
+
+        playlistRequestAttempts += 1;
+        try {
+            await publish('playlist_request', {
+                requesterId: memberId(),
+                requestedAt: Date.now(),
+                attempt: playlistRequestAttempts,
+            });
+        } catch (error) {
+            console.warn('[BCLT] retry playlist_request failed:', error);
+        }
+
+        schedulePlaylistSnapshotRequestRetry();
+    }, PLAYLIST_REQUEST_RETRY_DELAY_MS);
+}
+
+async function requestPlaylistSnapshotWithRetry() {
+    if (state.settings.isHost) return;
+    if (!state.connected) return;
+
+    resetPlaylistSnapshotRequestState();
+    playlistSnapshotPending = true;
+    playlistRequestAttempts = 1;
+
+    await publish('playlist_request', {
+        requesterId: memberId(),
+        requestedAt: Date.now(),
+        attempt: playlistRequestAttempts,
+    });
+
+    schedulePlaylistSnapshotRequestRetry();
 }
 
 function clampMainButtonPosition() {
@@ -3552,7 +3610,8 @@ function initializeRoomMode(playerContainer, videoList, statusEl) {
         const targetMemberId = payload.targetMemberId ? String(payload.targetMemberId) : '';
         if (targetMemberId && targetMemberId !== memberId()) return false;
 
-        if (!state.settings.isHost && envelope && envelope.senderId && envelope.senderId !== state.settings.roomHostMemberId) {
+        const knownHostMemberId = String(state.settings.roomHostMemberId || '');
+        if (!state.settings.isHost && knownHostMemberId && envelope && envelope.senderId && envelope.senderId !== knownHostMemberId) {
             // Allow non-host clients to trust playlist snapshot only from current host.
             return false;
         }
@@ -3567,6 +3626,7 @@ function initializeRoomMode(playerContainer, videoList, statusEl) {
         }
         refreshHostUiPrivileges();
         updateVideoList();
+        resetPlaylistSnapshotRequestState();
 
         const localSyncProgress = state.settings.syncPlaybackProgress !== false;
         const payloadSyncProgress = payload.syncProgress !== false;
@@ -3586,10 +3646,7 @@ function initializeRoomMode(playerContainer, videoList, statusEl) {
     state.onRoomConnected = async () => {
         if (state.settings.isHost) return;
 
-        await publish('playlist_request', {
-            requesterId: memberId(),
-            requestedAt: Date.now(),
-        });
+        await requestPlaylistSnapshotWithRetry();
     };
 
     state.onRemoteMediaState = async (payload, envelope) => {
@@ -3718,6 +3775,7 @@ function initializeRoomMode(playerContainer, videoList, statusEl) {
 }
 
 function clearRoomCallbacks() {
+    resetPlaylistSnapshotRequestState();
     state.onRemoteVideoShared = null;
     state.onRemoteMediaState = null;
     state.onRemotePlaylistState = null;

@@ -540,9 +540,15 @@
   let lastPasscodeMismatchWarnAt = 0;
   let hostOfflineFallbackInFlight = false;
   let hostOfflineFallbackLastAttemptAt = 0;
+  let joinSessionNonce = 0;
   const HOST_OFFLINE_FALLBACK_MS = 3e4;
   const HOST_FALLBACK_ACTIVE_WINDOW_MS = 6e4;
   const HOST_FALLBACK_COOLDOWN_MS = 12e3;
+  function buildChannelTopicRoomPart(roomId) {
+    const raw = String(roomId || "").trim();
+    if (!raw) return "room";
+    return encodeURIComponent(raw).replace(/%/g, "_");
+  }
   const SUPABASE_UMD_URLS = [
     "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js",
     "https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"
@@ -887,7 +893,17 @@
       return;
     }
     try {
+      const sessionNonce = ++joinSessionNonce;
       const client = await getSupabaseClient();
+      if (state.channel && state.supabase) {
+        try {
+          await state.supabase.removeChannel(state.channel);
+        } catch (error) {
+          console.warn("[BCLT] pre-join removeChannel failed:", error);
+        }
+      }
+      state.channel = null;
+      state.connected = false;
       const { data: roomRecord, error: roomError } = await client.from("bclt_rooms").select("room_id, room_passcode, host_member_id").eq("room_id", state.settings.roomId).maybeSingle();
       if (roomError) {
         throw new Error(`Read room failed: ${roomError.message}`);
@@ -903,7 +919,7 @@
       const roomHostId = roomRecord && roomRecord.host_member_id ? String(roomRecord.host_member_id) : "";
       state.settings.roomHostMemberId = roomHostId;
       state.settings.isHost = roomHostId === memberId();
-      const channelName = `${CHANNEL_PREFIX}${state.settings.roomId}`;
+      const channelName = `${CHANNEL_PREFIX}${buildChannelTopicRoomPart(state.settings.roomId)}`;
       const channel = client.channel(channelName, {
         config: {
           broadcast: { self: false },
@@ -911,9 +927,11 @@
         }
       });
       channel.on("broadcast", { event: "sync" }, async ({ payload }) => {
+        if (sessionNonce !== joinSessionNonce) return;
         await applyRemoteSync(payload);
       });
       channel.on("broadcast", { event: "video_shared" }, async ({ payload }) => {
+        if (sessionNonce !== joinSessionNonce) return;
         const normalized = payload && payload.payload && payload.type === "video_shared" ? {
           ...payload.payload,
           roomId: payload.roomId,
@@ -931,9 +949,11 @@
         }
       });
       channel.on("presence", { event: "sync" }, () => {
+        if (sessionNonce !== joinSessionNonce) return;
         logStatus("Presence updated");
       });
       channel.subscribe(async (status) => {
+        if (sessionNonce !== joinSessionNonce) return;
         if (status === "SUBSCRIBED") {
           lastPasscodeMismatchWarnAt = 0;
           state.connected = true;
@@ -955,6 +975,7 @@
           }
         }
         if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+          if (state.channel !== channel) return;
           state.connected = false;
           logStatus(`Channel status: ${status}`);
         }
@@ -1477,6 +1498,11 @@
   };
   const HQ_TAB_REMOTE_DRIFT_THRESHOLD_SECONDS = 12;
   const HQ_TAB_REMOTE_SYNC_COOLDOWN_MS = 1e4;
+  const PLAYLIST_REQUEST_RETRY_DELAY_MS = 1500;
+  const PLAYLIST_REQUEST_RETRY_MAX_ATTEMPTS = 5;
+  let playlistSnapshotPending = false;
+  let playlistRequestRetryTimer = null;
+  let playlistRequestAttempts = 0;
   const I18N = {
     zh: {
       mode_list_loop: "列表循环",
@@ -2278,6 +2304,49 @@
       syncProgress: syncEnabled,
       generatedAt: Date.now()
     };
+  }
+  function resetPlaylistSnapshotRequestState() {
+    playlistSnapshotPending = false;
+    playlistRequestAttempts = 0;
+    if (playlistRequestRetryTimer) {
+      clearTimeout(playlistRequestRetryTimer);
+      playlistRequestRetryTimer = null;
+    }
+  }
+  function schedulePlaylistSnapshotRequestRetry() {
+    if (!playlistSnapshotPending) return;
+    if (state.settings.isHost) return;
+    if (!state.connected) return;
+    if (playlistRequestRetryTimer) return;
+    if (playlistRequestAttempts >= PLAYLIST_REQUEST_RETRY_MAX_ATTEMPTS) return;
+    playlistRequestRetryTimer = window.setTimeout(async () => {
+      playlistRequestRetryTimer = null;
+      if (!playlistSnapshotPending || state.settings.isHost || !state.connected) return;
+      playlistRequestAttempts += 1;
+      try {
+        await publish("playlist_request", {
+          requesterId: memberId(),
+          requestedAt: Date.now(),
+          attempt: playlistRequestAttempts
+        });
+      } catch (error) {
+        console.warn("[BCLT] retry playlist_request failed:", error);
+      }
+      schedulePlaylistSnapshotRequestRetry();
+    }, PLAYLIST_REQUEST_RETRY_DELAY_MS);
+  }
+  async function requestPlaylistSnapshotWithRetry() {
+    if (state.settings.isHost) return;
+    if (!state.connected) return;
+    resetPlaylistSnapshotRequestState();
+    playlistSnapshotPending = true;
+    playlistRequestAttempts = 1;
+    await publish("playlist_request", {
+      requesterId: memberId(),
+      requestedAt: Date.now(),
+      attempt: playlistRequestAttempts
+    });
+    schedulePlaylistSnapshotRequestRetry();
   }
   function clampMainButtonPosition() {
     if (!buttonElement) return;
@@ -4404,7 +4473,8 @@
       if (!payload) return false;
       const targetMemberId = payload.targetMemberId ? String(payload.targetMemberId) : "";
       if (targetMemberId && targetMemberId !== memberId()) return false;
-      if (!state.settings.isHost && envelope && envelope.senderId && envelope.senderId !== state.settings.roomHostMemberId) {
+      const knownHostMemberId = String(state.settings.roomHostMemberId || "");
+      if (!state.settings.isHost && knownHostMemberId && envelope && envelope.senderId && envelope.senderId !== knownHostMemberId) {
         return false;
       }
       mergeActiveVideos(Array.isArray(payload.videos) ? payload.videos : []);
@@ -4417,6 +4487,7 @@
       }
       refreshHostUiPrivileges();
       updateVideoList();
+      resetPlaylistSnapshotRequestState();
       const localSyncProgress = state.settings.syncPlaybackProgress !== false;
       const payloadSyncProgress = payload.syncProgress !== false;
       if (payload.mediaState && localSyncProgress && payloadSyncProgress) {
@@ -4432,10 +4503,7 @@
     };
     state.onRoomConnected = async () => {
       if (state.settings.isHost) return;
-      await publish("playlist_request", {
-        requesterId: memberId(),
-        requestedAt: Date.now()
-      });
+      await requestPlaylistSnapshotWithRetry();
     };
     state.onRemoteMediaState = async (payload, envelope) => {
       if (!payload) return false;
@@ -4540,6 +4608,7 @@
     })();
   }
   function clearRoomCallbacks() {
+    resetPlaylistSnapshotRequestState();
     state.onRemoteVideoShared = null;
     state.onRemoteMediaState = null;
     state.onRemotePlaylistState = null;

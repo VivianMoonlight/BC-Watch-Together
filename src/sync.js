@@ -7,10 +7,18 @@ const HARDWIRED_SUPABASE_ANON_KEY = 'sb_publishable_0cwF0A-zVDkg0IGRQYrUSQ_nEIPs
 let lastPasscodeMismatchWarnAt = 0;
 let hostOfflineFallbackInFlight = false;
 let hostOfflineFallbackLastAttemptAt = 0;
+let joinSessionNonce = 0;
 
 const HOST_OFFLINE_FALLBACK_MS = 30000;
 const HOST_FALLBACK_ACTIVE_WINDOW_MS = 60000;
 const HOST_FALLBACK_COOLDOWN_MS = 12000;
+
+function buildChannelTopicRoomPart(roomId) {
+    const raw = String(roomId || '').trim();
+    if (!raw) return 'room';
+    // Keep channel topic ASCII-safe to avoid provider-side topic parsing issues.
+    return encodeURIComponent(raw).replace(/%/g, '_');
+}
 
 const SUPABASE_UMD_URLS = [
     'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js',
@@ -443,7 +451,19 @@ export async function joinRoom() {
     }
 
     try {
+        const sessionNonce = ++joinSessionNonce;
         const client = await getSupabaseClient();
+
+        if (state.channel && state.supabase) {
+            try {
+                await state.supabase.removeChannel(state.channel);
+            } catch (error) {
+                console.warn('[BCLT] pre-join removeChannel failed:', error);
+            }
+        }
+        state.channel = null;
+        state.connected = false;
+
         const { data: roomRecord, error: roomError } = await client
             .from('bclt_rooms')
             .select('room_id, room_passcode, host_member_id')
@@ -468,7 +488,7 @@ export async function joinRoom() {
         state.settings.roomHostMemberId = roomHostId;
         state.settings.isHost = roomHostId === memberId();
 
-        const channelName = `${CHANNEL_PREFIX}${state.settings.roomId}`;
+        const channelName = `${CHANNEL_PREFIX}${buildChannelTopicRoomPart(state.settings.roomId)}`;
         const channel = client.channel(channelName, {
             config: {
                 broadcast: { self: false },
@@ -477,10 +497,12 @@ export async function joinRoom() {
         });
 
         channel.on('broadcast', { event: 'sync' }, async ({ payload }) => {
+            if (sessionNonce !== joinSessionNonce) return;
             await applyRemoteSync(payload);
         });
 
         channel.on('broadcast', { event: 'video_shared' }, async ({ payload }) => {
+            if (sessionNonce !== joinSessionNonce) return;
             // Backward compatible: accept both direct payload and envelope payload.
             const normalized = payload && payload.payload && payload.type === 'video_shared'
                 ? {
@@ -504,10 +526,12 @@ export async function joinRoom() {
         });
 
         channel.on('presence', { event: 'sync' }, () => {
+            if (sessionNonce !== joinSessionNonce) return;
             logStatus('Presence updated');
         });
 
         channel.subscribe(async (status) => {
+            if (sessionNonce !== joinSessionNonce) return;
             if (status === 'SUBSCRIBED') {
                 lastPasscodeMismatchWarnAt = 0;
                 state.connected = true;
@@ -533,6 +557,7 @@ export async function joinRoom() {
                 }
             }
             if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+                if (state.channel !== channel) return;
                 state.connected = false;
                 logStatus(`Channel status: ${status}`);
             }
