@@ -406,8 +406,12 @@ export async function createRoomRecord() {
             }
 
             const rows = Array.isArray(existingMembers) ? existingMembers : [];
-            const hasActiveMember = rows.some((row) => isRecentActivity(row.last_seen_at, ACTIVE_MEMBER_WINDOW_MS));
-            if (hasActiveMember) {
+            const selfMemberId = memberId();
+            const hasOtherActiveMember = rows.some((row) => {
+                if (!isRecentActivity(row.last_seen_at, ACTIVE_MEMBER_WINDOW_MS)) return false;
+                return String(row.member_id || '') !== selfMemberId;
+            });
+            if (hasOtherActiveMember) {
                 throw new Error('Room name already exists. Please choose another room name.');
             }
 
