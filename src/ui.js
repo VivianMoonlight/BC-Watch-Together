@@ -3114,6 +3114,7 @@ function showPlayerMode() {
     const importPlaylistInput = windowInstance.content.querySelector('#bclt-import-playlist-input');
       const importVideoBtn = windowInstance.content.querySelector('#bclt-btn-import-local-video');
       const importVideoInput = windowInstance.content.querySelector('#bclt-import-video-input');
+    const managePermissionsBtn = windowInstance.content.querySelector('#bclt-btn-manage-permissions');
     const modeButtons = windowInstance.content.querySelectorAll('.mode-slider-btn');
 
     syncProgressCheckbox.checked = state.settings.syncPlaybackProgress !== false;
