@@ -989,6 +989,21 @@ async function maybePromoteSelfOnHostOffline(client) {
         state.roomAdminMemberIds = state.roomAdminMemberIds.filter((id) => String(id || '').trim() !== selfId);
         saveSettings();
 
+        if (state.onRemoteRoomControl) {
+            await state.onRemoteRoomControl({
+                action: 'ownership_transferred',
+                roomId: state.settings.roomId,
+                previousHostMemberId: currentHostId,
+                newHostMemberId: selfId,
+                newHostDisplayName: effectiveDisplayName(),
+                adminMemberIds: [...state.roomAdminMemberIds],
+                at: Date.now(),
+            }, {
+                senderId: selfId,
+                senderName: effectiveDisplayName(),
+            });
+        }
+
         await publish('room_control', {
             action: 'ownership_transferred',
             roomId: state.settings.roomId,

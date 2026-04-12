@@ -4425,6 +4425,14 @@ function initializeRoomMode(playerContainer, videoList, statusEl) {
     };
 
     state.onRoomConnected = async () => {
+        refreshHostUiPrivileges();
+        updateVideoList();
+
+        const roomNameEl = windowInstance?.headerEl?.querySelector('#bclt-toolbar-room-name');
+        if (roomNameEl) {
+            roomNameEl.textContent = formatRoomToolbarLabel();
+        }
+
         if (state.settings.isHost) return;
 
         await requestPlaylistSnapshotWithRetry();

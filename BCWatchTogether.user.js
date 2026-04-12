@@ -1592,6 +1592,20 @@
       state.currentRoomHostName = effectiveDisplayName();
       state.roomAdminMemberIds = state.roomAdminMemberIds.filter((id) => String(id || "").trim() !== selfId);
       saveSettings();
+      if (state.onRemoteRoomControl) {
+        await state.onRemoteRoomControl({
+          action: "ownership_transferred",
+          roomId: state.settings.roomId,
+          previousHostMemberId: currentHostId,
+          newHostMemberId: selfId,
+          newHostDisplayName: effectiveDisplayName(),
+          adminMemberIds: [...state.roomAdminMemberIds],
+          at: Date.now()
+        }, {
+          senderId: selfId,
+          senderName: effectiveDisplayName()
+        });
+      }
       await publish("room_control", {
         action: "ownership_transferred",
         roomId: state.settings.roomId,
@@ -5573,6 +5587,13 @@
       return true;
     };
     state.onRoomConnected = async () => {
+      var _a;
+      refreshHostUiPrivileges();
+      updateVideoList();
+      const roomNameEl = (_a = windowInstance == null ? void 0 : windowInstance.headerEl) == null ? void 0 : _a.querySelector("#bclt-toolbar-room-name");
+      if (roomNameEl) {
+        roomNameEl.textContent = formatRoomToolbarLabel();
+      }
       if (state.settings.isHost) return;
       await requestPlaylistSnapshotWithRetry();
     };
