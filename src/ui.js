@@ -387,8 +387,10 @@ const I18N = {
         player_shared_videos: '共享视频',
         player_add_placeholder: '粘贴 Bilibili 链接或 BV 号',
         player_add_btn: '+ 添加',
+        player_add_local_btn: '添加本地视频',
         player_import_btn: '导入 JSON',
         player_export_btn: '导出 JSON',
+        player_register_local_btn: '注册本地视频',
         player_mode_title: '播放模式',
         player_manage_permissions: '房主/管理员权限',
         permission_modal_sub: '活跃成员（包含你自己）。房主为单选，管理员为多选。',
@@ -432,6 +434,10 @@ const I18N = {
         playlist_import_invalid_json: '导入失败：JSON 格式无效',
         playlist_import_empty: '导入失败：未找到可导入的视频条目',
         playlist_import_result: '歌单导入完成：成功 {success} 条，失败 {failed} 条',
+        local_video_register_invalid: '请选择有效的视频文件',
+        local_video_register_none: '未选择本地视频文件',
+        local_video_register_result: '本地视频注册完成：{count} 个',
+        local_video_registered: '已注册本地视频：{title}',
     },
     en: {
         mode_list_loop: 'List Loop',
@@ -492,8 +498,10 @@ const I18N = {
         player_shared_videos: 'Shared Videos',
         player_add_placeholder: 'Paste Bilibili URL or BV',
         player_add_btn: '+ Add',
+        player_add_local_btn: 'Add Local Video',
         player_import_btn: 'Import JSON',
         player_export_btn: 'Export JSON',
+        player_register_local_btn: 'Register Local Video',
         player_mode_title: 'Playback mode',
         player_manage_permissions: 'Host/Admin Permissions',
         permission_modal_sub: 'Active members (including yourself). Host is single-select, Admin is multi-select.',
@@ -537,6 +545,10 @@ const I18N = {
         playlist_import_invalid_json: 'Import failed: invalid JSON format',
         playlist_import_empty: 'Import failed: no valid video entries found',
         playlist_import_result: 'Playlist import complete: {success} succeeded, {failed} failed',
+        local_video_register_invalid: 'Please select a valid video file',
+        local_video_register_none: 'No local video selected',
+        local_video_register_result: 'Local video registration complete: {count}',
+        local_video_registered: 'Local video registered: {title}',
     },
 };
 
@@ -623,11 +635,17 @@ function refreshPlayerLocalizedText() {
     const addBtn = content.querySelector('#bclt-btn-add-video');
     if (addBtn) addBtn.textContent = t('player_add_btn');
 
+    const addLocalBtn = content.querySelector('#bclt-btn-add-local-video');
+    if (addLocalBtn) addLocalBtn.textContent = t('player_add_local_btn');
+
     const importBtn = content.querySelector('#bclt-btn-import-playlist');
     if (importBtn) importBtn.textContent = t('player_import_btn');
 
     const exportBtn = content.querySelector('#bclt-btn-export-playlist');
     if (exportBtn) exportBtn.textContent = t('player_export_btn');
+
+    const registerLocalBtn = content.querySelector('#bclt-btn-register-local-video');
+    if (registerLocalBtn) registerLocalBtn.textContent = t('player_register_local_btn');
 
     const addInput = content.querySelector('#bclt-add-video-input');
     if (addInput) addInput.placeholder = t('player_add_placeholder');
@@ -1060,6 +1078,7 @@ function refreshHostUiPrivileges() {
     const permissionBtn = windowInstance?.content?.querySelector('#bclt-btn-manage-permissions');
     const modeButtons = windowInstance?.content?.querySelectorAll('.mode-slider-btn') || [];
     const addVideoBtn = windowInstance?.content?.querySelector('#bclt-btn-add-video');
+    const addLocalVideoBtn = windowInstance?.content?.querySelector('#bclt-btn-add-local-video');
     const addVideoInput = windowInstance?.content?.querySelector('#bclt-add-video-input');
     const importPlaylistBtn = windowInstance?.content?.querySelector('#bclt-btn-import-playlist');
     const skipBtn = windowInstance?.content?.querySelector('#bclt-btn-skip-next');
@@ -1084,6 +1103,12 @@ function refreshHostUiPrivileges() {
     if (addVideoInput) {
         addVideoInput.disabled = !canEditPlaylist;
         addVideoInput.title = canEditPlaylist ? '' : t('host_admin_add_video');
+    }
+
+    if (addLocalVideoBtn) {
+        addLocalVideoBtn.disabled = !canEditPlaylist;
+        addLocalVideoBtn.style.opacity = canEditPlaylist ? '1' : '0.6';
+        addLocalVideoBtn.title = canEditPlaylist ? '' : t('host_admin_add_video');
     }
 
     if (importPlaylistBtn) {
@@ -2157,7 +2182,7 @@ export function createUI() {
             display: flex;
             flex-wrap: wrap;
             justify-content: space-between;
-            align-items: center;
+            align-items: flex-start;
             gap: 8px;
             padding: 11px 12px;
             border-bottom: 1px solid var(--bclt-border-soft);
@@ -2166,14 +2191,48 @@ export function createUI() {
         #bclt-window .video-list-header-row {
             width: 100%;
             display: flex;
-            flex-wrap: wrap;
             align-items: center;
+            flex-wrap: wrap;
             gap: 8px;
             min-width: 0;
         }
 
+        #bclt-window .video-add-row {
+            align-items: stretch;
+        }
+
+        #bclt-window .video-toolbar-row {
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        #bclt-window .playlist-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            min-width: 0;
+            flex: 1;
+        }
+
         #bclt-window .playlist-io-btn {
             flex-shrink: 0;
+            white-space: nowrap;
+            border-radius: 999px;
+            padding-inline: 12px;
+            letter-spacing: 0.1px;
+        }
+
+        #bclt-window .add-local-btn {
+            flex-shrink: 0;
+            white-space: nowrap;
+            border-radius: 999px;
+            padding-inline: 12px;
+            border-color: rgba(34, 211, 238, 0.5);
+            background: linear-gradient(135deg, rgba(14, 165, 233, 0.42), rgba(34, 211, 238, 0.28));
+        }
+
+        #bclt-window .video-toolbar-row .mode-slider {
+            margin-left: auto;
         }
 
         #bclt-window .add-video-input {
@@ -2203,7 +2262,6 @@ export function createUI() {
             border: 1px solid var(--bclt-border-soft);
             background: rgba(8, 19, 35, 0.84);
             flex-shrink: 0;
-            margin-left: auto;
         }
 
         #bclt-window .mode-slider::before {
@@ -2591,6 +2649,14 @@ export function createUI() {
             #bclt-window .button-group,
             #bclt-window .player-controls {
                 grid-template-columns: 1fr;
+            }
+
+            #bclt-window .video-toolbar-row {
+                justify-content: flex-start;
+            }
+
+            #bclt-window .video-toolbar-row .mode-slider {
+                margin-left: 0;
             }
 
             #bclt-window .panel-title-row {
@@ -3051,24 +3117,26 @@ function showPlayerMode() {
             <div class="video-list">
                 <div class="video-list-header">
                     <div class="video-list-title">${t('player_shared_videos')}</div>
-                    <div class="video-list-header-row">
+                    <div class="video-list-header-row video-add-row">
                         <input id="bclt-add-video-input" class="add-video-input" type="text" placeholder="${t('player_add_placeholder')}" />
-                        <button id="bclt-btn-add-video" class="btn-accent btn-small" type="button" style="flex-shrink:0;">${t('player_add_btn')}</button>
-                        <button id="bclt-btn-import-local-video" class="btn-accent btn-small" type="button" style="flex-shrink:0;" title="添加本地视频">+ 本地</button>
+                        <button id="bclt-btn-add-video" class="btn-accent btn-small" type="button">${t('player_add_btn')}</button>
+                        <button id="bclt-btn-add-local-video" class="btn-small add-local-btn" type="button">${t('player_add_local_btn')}</button>
                     </div>
-                    <div class="video-list-header-row">
-                        <button id="bclt-btn-import-playlist" class="btn-neutral btn-small playlist-io-btn" type="button" title="从JSON文件导入列表">${t('player_import_btn')}</button>
-                        <button id="bclt-btn-export-playlist" class="btn-neutral btn-small playlist-io-btn" type="button" title="导出列表为JSON">${t('player_export_btn')}</button>
-                        <button id="bclt-btn-register-local-video" class="btn-neutral btn-small playlist-io-btn" type="button" title="仅在本地注册视频文件以供远端同步使用，各用户均可用">注册本地</button>
-                        <input id="bclt-import-playlist-input" type="file" accept="application/json,.json" style="display:none" />
-                        <input id="bclt-import-video-input" type="file" accept="video/*" multiple style="display:none" />
-                        <input id="bclt-register-video-input" type="file" accept="video/*" multiple style="display:none" />
+                    <div class="video-list-header-row video-toolbar-row">
+                        <div class="playlist-actions">
+                            <button id="bclt-btn-import-playlist" class="btn-neutral btn-small playlist-io-btn" type="button">${t('player_import_btn')}</button>
+                            <button id="bclt-btn-export-playlist" class="btn-neutral btn-small playlist-io-btn" type="button">${t('player_export_btn')}</button>
+                            <button id="bclt-btn-register-local-video" class="btn-neutral btn-small playlist-io-btn" type="button">${t('player_register_local_btn')}</button>
+                        </div>
                         <div id="bclt-mode-slider" class="mode-slider" data-mode="list" title="${t('player_mode_title')}">
                             <button class="mode-slider-btn" data-mode="list" type="button" title="${t('mode_list_loop')}">🔁</button>
                             <button class="mode-slider-btn" data-mode="single" type="button" title="${t('mode_single_loop')}">🔂</button>
                             <button class="mode-slider-btn" data-mode="shuffle" type="button" title="${t('mode_shuffle')}">🔀</button>
                         </div>
                     </div>
+                    <input id="bclt-import-playlist-input" type="file" accept="application/json,.json" style="display:none" />
+                    <input id="bclt-add-local-video-input" type="file" accept="video/*" multiple style="display:none" />
+                    <input id="bclt-register-local-video-input" type="file" accept="video/*" multiple style="display:none" />
                 </div>
                 <div class="video-list-content" id="bclt-video-list"></div>
                 <div class="video-list-footer">
@@ -3113,13 +3181,13 @@ function showPlayerMode() {
     const immersiveExitBtn = windowInstance.content.querySelector('#bclt-btn-exit-immersive');
     const addVideoInput = windowInstance.content.querySelector('#bclt-add-video-input');
     const addVideoBtn = windowInstance.content.querySelector('#bclt-btn-add-video');
+        const addLocalVideoBtn = windowInstance.content.querySelector('#bclt-btn-add-local-video');
     const importPlaylistBtn = windowInstance.content.querySelector('#bclt-btn-import-playlist');
     const exportPlaylistBtn = windowInstance.content.querySelector('#bclt-btn-export-playlist');
+        const registerLocalVideoBtn = windowInstance.content.querySelector('#bclt-btn-register-local-video');
     const importPlaylistInput = windowInstance.content.querySelector('#bclt-import-playlist-input');
-      const importVideoBtn = windowInstance.content.querySelector('#bclt-btn-import-local-video');
-      const importVideoInput = windowInstance.content.querySelector('#bclt-import-video-input');
-      const registerVideoBtn = windowInstance.content.querySelector('#bclt-btn-register-local-video');
-      const registerVideoInput = windowInstance.content.querySelector('#bclt-register-video-input');
+        const addLocalVideoInput = windowInstance.content.querySelector('#bclt-add-local-video-input');
+        const registerLocalVideoInput = windowInstance.content.querySelector('#bclt-register-local-video-input');
     const managePermissionsBtn = windowInstance.content.querySelector('#bclt-btn-manage-permissions');
     const modeButtons = windowInstance.content.querySelectorAll('.mode-slider-btn');
 
@@ -3234,54 +3302,57 @@ function showPlayerMode() {
         importPlaylistInput.click();
     });
 
-      importVideoBtn.addEventListener('click', () => {
-          if (!canManagePlaylist()) {
-              alert(t('host_admin_add_video'));
-              return;
-          }
-          importVideoInput.click();
-      });
+    importPlaylistInput.addEventListener('change', async (event) => {
+        if (!canManagePlaylist()) return;
+        const file = event.target.files && event.target.files[0];
+        if (file) {
+            await importPlaylistFromJsonFile(file);
+        }
+        importPlaylistInput.value = '';
+    });
 
-      importVideoInput.addEventListener('change', async (event) => {
-          if (!canManagePlaylist()) return;
-          const files = Array.from(event.target.files || []);
-          for (const file of files) {
-              await addLocalVideoToRoom(file);
-          }
-          importVideoInput.value = '';
-      });
+    addLocalVideoBtn.addEventListener('click', () => {
+        if (!canManagePlaylist()) {
+            alert(t('host_admin_add_video'));
+            return;
+        }
+        addLocalVideoInput.click();
+    });
 
-      registerVideoBtn.addEventListener('click', () => {
-          registerVideoInput.click();
-      });
+    addLocalVideoInput.addEventListener('change', async (event) => {
+        if (!canManagePlaylist()) return;
+        const files = Array.from(event.target.files || []);
+        for (const file of files) {
+            await addLocalVideoToRoom(file);
+        }
+        addLocalVideoInput.value = '';
+    });
 
-      registerVideoInput.addEventListener('change', async (event) => {
-          const files = Array.from(event.target.files || []);
-          let registeredCount = 0;
-          for (const file of files) {
-              if (file.type.startsWith('video/')) {
-                  const fileHash = hashFileIdentifier(file);
-                  localVideoFilesByHash.set(fileHash, {
-                      file,
-                      name: file.name || 'Local Video',
-                      size: file.size,
-                      time: Date.now(),
-                  });
-                  registeredCount++;
-              }
-          }
-          registerVideoInput.value = '';
-          if (registeredCount > 0) {
-              alert(`已成功注册 ${registeredCount} 个本地视频，现在可以进行远端同步。`);
-              // Force a UI update in case we were waiting for this file
-              if (state.activeVideos.length > 0) {
-                  updateVideoList();
-                  if (computeBilibiliSyntheticState().mediaKind === 'local_video') {
-                      await applyRoomPlaybackState(computeBilibiliSyntheticState(), { publishState: false, reason: 'local-video-registered', forceReload: true });
-                  }
-              }
-          }
-      });
+    registerLocalVideoBtn.addEventListener('click', () => {
+        registerLocalVideoInput.click();
+    });
+
+    registerLocalVideoInput.addEventListener('change', async (event) => {
+        const files = Array.from(event.target.files || []);
+        if (!files.length) {
+            updatePlaybackUi(t('local_video_register_none'));
+            registerLocalVideoInput.value = '';
+            return;
+        }
+
+        let success = 0;
+        for (const file of files) {
+            const result = registerLocalVideoFile(file, { announce: false });
+            if (result) success += 1;
+        }
+
+        if (success > 0) {
+            updatePlaybackUi(t('local_video_register_result', { count: success }));
+        } else {
+            updatePlaybackUi(t('local_video_register_invalid'));
+        }
+        registerLocalVideoInput.value = '';
+    });
 
     managePermissionsBtn.addEventListener('click', async () => {
         if (!state.settings.isHost) {
@@ -3488,29 +3559,50 @@ function hashFileIdentifier(file) {
 // Store local video files in a map for later retrieval
 const localVideoFilesByHash = new Map();
 
+function registerLocalVideoFile(file, options = {}) {
+    const { announce = true } = options;
+
+    if (!file || !String(file.type || '').startsWith('video/')) {
+        if (announce) {
+            alert(t('local_video_register_invalid'));
+        }
+        return null;
+    }
+
+    const fileHash = hashFileIdentifier(file);
+    const fileName = file.name || 'Local Video';
+    const title = fileName.replace(/\.[^/.]+$/, '');
+    const existing = localVideoFilesByHash.get(fileHash) || {};
+
+    localVideoFilesByHash.set(fileHash, {
+        ...existing,
+        file,
+        name: fileName,
+        size: file.size,
+        time: Date.now(),
+        remote: existing.remote === true,
+    });
+
+    if (announce) {
+        logStatus(t('local_video_registered', { title }));
+    }
+
+    return { fileHash, fileName, title };
+}
+
 async function addLocalVideoToRoom(file) {
     if (!canManagePlaylist()) {
         alert(t('host_admin_add_video'));
         return;
     }
 
-    if (!file || !file.type.startsWith('video/')) {
-        alert('Please select a valid video file');
-        return;
-    }
-
     try {
-        const fileHash = hashFileIdentifier(file);
-        const fileName = file.name || 'Local Video';
-        const title = fileName.replace(/\.[^/.]+$/, '');
-        
-        // Store the file for later access
-        localVideoFilesByHash.set(fileHash, {
-            file,
-            name: fileName,
-            size: file.size,
-            time: Date.now(),
-        });
+        const registered = registerLocalVideoFile(file, { announce: false });
+        if (!registered) {
+            return false;
+        }
+
+        const { fileHash, fileName, title } = registered;
 
         // Create a special local video URL
         const localVideoUrl = `local://${fileHash}`;
@@ -3790,6 +3882,54 @@ function updateMediaToggleButton(snapshot) {
     btn.classList.toggle('is-paused', !paused);
 }
 
+function bindInlineVideoStateSync(videoEl, sourceUrl) {
+    if (!(videoEl instanceof HTMLVideoElement)) return;
+
+    const syncFromElement = (reason = 'inline-video-sync') => {
+        const fallbackSource = String(computeBilibiliSyntheticState().sourceUrl || state.bilibili.sourceUrl || '');
+        const resolvedSource = String(sourceUrl || videoEl.dataset.bcltSourceUrl || fallbackSource || '').trim();
+        if (!resolvedSource) return;
+
+        const duration = Number.isFinite(Number(videoEl.duration)) && Number(videoEl.duration) > 0
+            ? Number(videoEl.duration)
+            : null;
+
+        setBilibiliSyntheticState({
+            sourceUrl: resolvedSource,
+            currentTime: Number.isFinite(Number(videoEl.currentTime)) ? Number(videoEl.currentTime) : 0,
+            duration,
+            paused: !!videoEl.paused,
+            playbackRate: Number.isFinite(Number(videoEl.playbackRate)) && Number(videoEl.playbackRate) > 0
+                ? Number(videoEl.playbackRate)
+                : 1,
+        }, reason);
+    };
+
+    videoEl.dataset.bcltSourceUrl = String(sourceUrl || videoEl.dataset.bcltSourceUrl || '').trim();
+    if (videoEl.dataset.bcltSyncBound === '1') {
+        return;
+    }
+
+    const publishIfHost = () => {
+        if (!state.settings.isHost || state.settings.syncPlaybackProgress === false) return;
+        if (Date.now() < Number(state.remoteGuardUntil || 0)) return;
+        void publish('media_state', computeBilibiliSyntheticState());
+    };
+
+    const handleState = () => {
+        syncFromElement('inline-video-state');
+        updatePlaybackUi();
+        publishIfHost();
+    };
+
+    videoEl.dataset.bcltSyncBound = '1';
+    videoEl.addEventListener('loadedmetadata', handleState);
+    videoEl.addEventListener('play', handleState);
+    videoEl.addEventListener('pause', handleState);
+    videoEl.addEventListener('ratechange', handleState);
+    videoEl.addEventListener('seeked', handleState);
+}
+
 function updatePlaybackUi(statusHint = '') {
     const currentLabel = windowInstance?.content?.querySelector('#bclt-progress-current');
     const maxLabel = windowInstance?.content?.querySelector('#bclt-progress-max');
@@ -3875,8 +4015,11 @@ async function applyRoomPlaybackState(nextState, options = {}) {
     const pausedChanged = incomingPaused !== current.paused;
     const rateChanged = incomingRate !== current.playbackRate;
     const isRemoteSyncReason = reason === 'remote-sync' || reason === 'remote-playlist-state';
+    if (isRemoteSyncReason) {
+        state.remoteGuardUntil = Date.now() + 700;
+    }
     const missingInlineIframe = !highQualityMode && !iframeEl;
-    const isInlineVideo = !highQualityMode && mediaKind === 'video';
+    const isInlineVideo = !highQualityMode && (mediaKind === 'video' || mediaKind === 'local_video');
     const shouldReloadByState = forceReload || missingInlineIframe || sourceChanged || (!isInlineVideo && (pausedChanged || rateChanged));
     const shouldReloadByDrift = syncProgress && driftSeconds > thresholdSeconds;
     let shouldReload = shouldReloadByState || (!isInlineVideo && shouldReloadByDrift);
@@ -3884,6 +4027,7 @@ async function applyRoomPlaybackState(nextState, options = {}) {
     if (isInlineVideo && !shouldReloadByState && !sourceChanged && !missingInlineIframe) {
         const videoEl = windowInstance?.content?.querySelector('#bclt-player-container video');
         if (videoEl) {
+            bindInlineVideoStateSync(videoEl, sourceUrl);
             if (shouldReloadByDrift) {
                 videoEl.currentTime = targetTime;
             }
@@ -3963,7 +4107,9 @@ async function applyRoomPlaybackState(nextState, options = {}) {
                 const objectUrl = URL.createObjectURL(fileInfo.file);
                 playerContainer.innerHTML = `<video src="${objectUrl}" style="width:100%;height:100%;background:#000;" controls></video>`;
                 const videoEl = playerContainer.querySelector('video');
+                bindInlineVideoStateSync(videoEl, sourceUrl);
                 videoEl.currentTime = targetTime;
+                videoEl.playbackRate = incomingRate;
                 if (!incomingPaused) {
                     videoEl.play().catch(e => console.warn('[BCLT] Video play blocked:', e));
                 }
@@ -3979,7 +4125,9 @@ async function applyRoomPlaybackState(nextState, options = {}) {
         } else if (mediaKind === 'video') {
             playerContainer.innerHTML = `<video src="${sourceUrl}" style="width:100%;height:100%;background:#000;" controls></video>`;
             const videoEl = playerContainer.querySelector('video');
+            bindInlineVideoStateSync(videoEl, sourceUrl);
             videoEl.currentTime = targetTime;
+            videoEl.playbackRate = incomingRate;
             if (!incomingPaused) {
                 videoEl.play().catch(e => console.warn('[BCLT] Video play blocked:', e));
             }
@@ -4100,12 +4248,15 @@ function initializeRoomMode(playerContainer, videoList, statusEl) {
             
             // For local videos, store the file hash information
             if (payload.mediaKind === 'local_video' && payload.fileHash) {
+                const existing = localVideoFilesByHash.get(payload.fileHash) || {};
                 localVideoFilesByHash.set(payload.fileHash, {
+                    ...existing,
                     remote: true,
-                    name: payload.fileName || 'Remote Local Video',
-                    size: payload.fileSize || 0,
+                    name: existing.name || payload.fileName || 'Remote Local Video',
+                    size: existing.size || payload.fileSize || 0,
                     time: Date.now(),
                     senderId: payload.senderId,
+                    file: existing.file || null,
                 });
             }
 
@@ -4192,6 +4343,8 @@ function initializeRoomMode(playerContainer, videoList, statusEl) {
         const isSupported = /bilibili\.com|b23\.tv|BV[0-9A-Za-z]{10,}/i.test(sourceUrl)
             || isYouTubeUrl(sourceUrl)
             || !!parseYouTubeVideoId(sourceUrl)
+            || String(sourceUrl).startsWith('local://')
+            || payload.mediaKind === 'local_video'
             || /\.(mp4|webm|ogg|m3u8|mkv|mov|flv)(\?|#|$)/i.test(sourceUrl);
         if (!isSupported || !sourceUrl) return false;
 

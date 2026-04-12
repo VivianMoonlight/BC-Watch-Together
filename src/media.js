@@ -93,6 +93,27 @@ export function getCurrentMediaElement() {
 }
 
 export function readLocalMediaState() {
+    const roomModalVideo = document.querySelector('#bclt-player-container video');
+    if (roomModalVideo instanceof HTMLMediaElement) {
+        const synthetic = computeBilibiliSyntheticState();
+        const sourceUrl = String(synthetic.sourceUrl || roomModalVideo.currentSrc || roomModalVideo.src || '');
+        return {
+            mediaKind: synthetic.mediaKind,
+            sourceUrl,
+            bvid: synthetic.bvid,
+            videoId: synthetic.videoId,
+            currentTime: Number.isFinite(Number(roomModalVideo.currentTime)) ? Number(roomModalVideo.currentTime) : 0,
+            paused: !!roomModalVideo.paused,
+            playbackRate: Number.isFinite(Number(roomModalVideo.playbackRate)) && Number(roomModalVideo.playbackRate) > 0
+                ? Number(roomModalVideo.playbackRate)
+                : 1,
+            src: sourceUrl,
+            duration: Number.isFinite(Number(roomModalVideo.duration)) && Number(roomModalVideo.duration) > 0
+                ? Number(roomModalVideo.duration)
+                : (Number.isFinite(Number(synthetic.duration)) && Number(synthetic.duration) > 0 ? Number(synthetic.duration) : null),
+        };
+    }
+
     const roomModalIframe = document.querySelector('#bclt-player-container iframe');
     if (state.embedFrame || roomModalIframe) {
         return computeBilibiliSyntheticState();
