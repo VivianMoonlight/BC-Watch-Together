@@ -2166,6 +2166,7 @@ export function createUI() {
         #bclt-window .video-list-header-row {
             width: 100%;
             display: flex;
+            flex-wrap: wrap;
             align-items: center;
             gap: 8px;
             min-width: 0;
@@ -2202,6 +2203,7 @@ export function createUI() {
             border: 1px solid var(--bclt-border-soft);
             background: rgba(8, 19, 35, 0.84);
             flex-shrink: 0;
+            margin-left: auto;
         }
 
         #bclt-window .mode-slider::before {
@@ -3051,14 +3053,16 @@ function showPlayerMode() {
                     <div class="video-list-title">${t('player_shared_videos')}</div>
                     <div class="video-list-header-row">
                         <input id="bclt-add-video-input" class="add-video-input" type="text" placeholder="${t('player_add_placeholder')}" />
-                        <button id="bclt-btn-add-video" class="btn-accent btn-small" type="button">${t('player_add_btn')}</button>
+                        <button id="bclt-btn-add-video" class="btn-accent btn-small" type="button" style="flex-shrink:0;">${t('player_add_btn')}</button>
+                        <button id="bclt-btn-import-local-video" class="btn-accent btn-small" type="button" style="flex-shrink:0;" title="添加本地视频">+ 本地</button>
                     </div>
                     <div class="video-list-header-row">
-                        <button id="bclt-btn-import-playlist" class="btn-neutral btn-small playlist-io-btn" type="button">${t('player_import_btn')}</button>
-                        <button id="bclt-btn-export-playlist" class="btn-neutral btn-small playlist-io-btn" type="button">${t('player_export_btn')}</button>
-                        <button id="bclt-btn-import-local-video" class="btn-neutral btn-small playlist-io-btn" type="button">导入本地视频</button>
+                        <button id="bclt-btn-import-playlist" class="btn-neutral btn-small playlist-io-btn" type="button" title="从JSON文件导入列表">${t('player_import_btn')}</button>
+                        <button id="bclt-btn-export-playlist" class="btn-neutral btn-small playlist-io-btn" type="button" title="导出列表为JSON">${t('player_export_btn')}</button>
+                        <button id="bclt-btn-register-local-video" class="btn-neutral btn-small playlist-io-btn" type="button" title="仅在本地注册视频文件以供远端同步使用，各用户均可用">注册本地</button>
                         <input id="bclt-import-playlist-input" type="file" accept="application/json,.json" style="display:none" />
                         <input id="bclt-import-video-input" type="file" accept="video/*" multiple style="display:none" />
+                        <input id="bclt-register-video-input" type="file" accept="video/*" multiple style="display:none" />
                         <div id="bclt-mode-slider" class="mode-slider" data-mode="list" title="${t('player_mode_title')}">
                             <button class="mode-slider-btn" data-mode="list" type="button" title="${t('mode_list_loop')}">🔁</button>
                             <button class="mode-slider-btn" data-mode="single" type="button" title="${t('mode_single_loop')}">🔂</button>
@@ -3114,6 +3118,8 @@ function showPlayerMode() {
     const importPlaylistInput = windowInstance.content.querySelector('#bclt-import-playlist-input');
       const importVideoBtn = windowInstance.content.querySelector('#bclt-btn-import-local-video');
       const importVideoInput = windowInstance.content.querySelector('#bclt-import-video-input');
+      const registerVideoBtn = windowInstance.content.querySelector('#bclt-btn-register-local-video');
+      const registerVideoInput = windowInstance.content.querySelector('#bclt-register-video-input');
     const managePermissionsBtn = windowInstance.content.querySelector('#bclt-btn-manage-permissions');
     const modeButtons = windowInstance.content.querySelectorAll('.mode-slider-btn');
 
@@ -3243,6 +3249,38 @@ function showPlayerMode() {
               await addLocalVideoToRoom(file);
           }
           importVideoInput.value = '';
+      });
+
+      registerVideoBtn.addEventListener('click', () => {
+          registerVideoInput.click();
+      });
+
+      registerVideoInput.addEventListener('change', async (event) => {
+          const files = Array.from(event.target.files || []);
+          let registeredCount = 0;
+          for (const file of files) {
+              if (file.type.startsWith('video/')) {
+                  const fileHash = hashFileIdentifier(file);
+                  localVideoFilesByHash.set(fileHash, {
+                      file,
+                      name: file.name || 'Local Video',
+                      size: file.size,
+                      time: Date.now(),
+                  });
+                  registeredCount++;
+              }
+          }
+          registerVideoInput.value = '';
+          if (registeredCount > 0) {
+              alert(`已成功注册 ${registeredCount} 个本地视频，现在可以进行远端同步。`);
+              // Force a UI update in case we were waiting for this file
+              if (state.activeVideos.length > 0) {
+                  updateVideoList();
+                  if (computeBilibiliSyntheticState().mediaKind === 'local_video') {
+                      await applyRoomPlaybackState(computeBilibiliSyntheticState(), { publishState: false, reason: 'local-video-registered', forceReload: true });
+                  }
+              }
+          }
       });
 
     managePermissionsBtn.addEventListener('click', async () => {
