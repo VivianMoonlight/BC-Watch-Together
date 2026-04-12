@@ -297,6 +297,7 @@ let playbackSeekMaxSeconds = 3600;
 let autoAdvanceTriggerToken = '';
 let autoAdvanceInFlight = false;
 let highQualityPlaybackTab = null;
+let highQualityTabSessionOpened = false;
 let highQualityTabLastSyncAt = 0;
 let nowPlayingHighlightToken = '';
 const bilibiliVideoTitleTaskByBvid = new Map();
@@ -757,6 +758,7 @@ function setImmersiveMode(enabled, options = {}) {
 function closeHighQualityPlaybackTab(options = {}) {
     const { destroySession = false, blankUrl = 'about:blank' } = options;
     const tryRetargetByName = () => {
+        if (!highQualityTabSessionOpened) return null;
         try {
             return window.open(blankUrl, HQ_TAB_WINDOW_NAME, HQ_TAB_WINDOW_FEATURES);
         } catch (error) {
@@ -765,12 +767,19 @@ function closeHighQualityPlaybackTab(options = {}) {
     };
 
     let handle = highQualityPlaybackTab;
+    if (!handle && !highQualityTabSessionOpened) {
+        return;
+    }
     if (!handle) {
         handle = tryRetargetByName();
     }
 
     if (!handle) {
         highQualityPlaybackTab = null;
+        if (destroySession) {
+            highQualityTabSessionOpened = false;
+            highQualityTabLastSyncAt = 0;
+        }
         return;
     }
 
@@ -782,6 +791,8 @@ function closeHighQualityPlaybackTab(options = {}) {
                 target.close();
             }
             highQualityPlaybackTab = null;
+            highQualityTabSessionOpened = false;
+            highQualityTabLastSyncAt = 0;
             return;
         }
 
@@ -797,6 +808,7 @@ function closeHighQualityPlaybackTab(options = {}) {
         }
 
         highQualityPlaybackTab = handle;
+        highQualityTabSessionOpened = true;
         try {
             window.focus();
         } catch (focusError) {
@@ -964,6 +976,7 @@ function updateOrOpenHighQualityPlaybackTab(sourceUrl, currentTime, { autoplay =
     try {
         if (highQualityPlaybackTab && !highQualityPlaybackTab.closed) {
             hadExistingTab = true;
+            highQualityTabSessionOpened = true;
             const existingHref = String(highQualityPlaybackTab.location?.href || '');
             if (existingHref === watchUrl) {
                 console.log('[BCLT] Popup already on target URL, skip navigation.');
@@ -1001,6 +1014,7 @@ function updateOrOpenHighQualityPlaybackTab(sourceUrl, currentTime, { autoplay =
         }
 
         highQualityPlaybackTab = openedTab;
+    highQualityTabSessionOpened = true;
         console.log('[BCLT] Window handle stored.');
 
         // Auto-minimize: keep focus on main BC window so popup stays in background
@@ -3955,6 +3969,11 @@ function bindInlineVideoStateSync(videoEl, sourceUrl) {
     if (!(videoEl instanceof HTMLVideoElement)) return;
 
     const syncFromElement = (reason = 'inline-video-sync') => {
+        const activeVideo = windowInstance?.content?.querySelector('#bclt-player-container video');
+        if (!videoEl.isConnected || activeVideo !== videoEl) {
+            return;
+        }
+
         const fallbackSource = String(computeBilibiliSyntheticState().sourceUrl || state.bilibili.sourceUrl || '');
         const resolvedSource = String(sourceUrl || videoEl.dataset.bcltSourceUrl || fallbackSource || '').trim();
         if (!resolvedSource) return;
