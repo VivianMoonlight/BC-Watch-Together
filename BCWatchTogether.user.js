@@ -817,7 +817,7 @@
   let hostOfflineFallbackInFlight = false;
   let hostOfflineFallbackLastAttemptAt = 0;
   let joinSessionNonce = 0;
-  const HOST_OFFLINE_FALLBACK_MS = 3e4;
+  const HOST_OFFLINE_FALLBACK_MS = 2e4;
   const HOST_FALLBACK_ACTIVE_WINDOW_MS = 6e4;
   const HOST_FALLBACK_COOLDOWN_MS = 12e3;
   const ACTIVE_MEMBER_WINDOW_MS = 60 * 1e3;
@@ -1044,9 +1044,27 @@
     await touchRoom(client);
   }
   async function touchRoom(client) {
-    const { error } = await client.from("bclt_rooms").update({ updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("room_id", state.settings.roomId);
+    const { data: updated, error } = await client.from("bclt_rooms").update({ updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("room_id", state.settings.roomId).eq("host_member_id", memberId()).select("host_member_id");
     if (error) {
       console.warn("[BCLT] touch room failed:", error.message);
+    } else if (Array.isArray(updated) && updated.length === 0) {
+      console.warn("[BCLT] Host heartbeat rejected: usurped while offline. Stepping down.");
+      state.settings.isHost = false;
+      const { data: currentRoom } = await client.from("bclt_rooms").select("host_member_id").eq("room_id", state.settings.roomId).maybeSingle();
+      if (currentRoom && currentRoom.host_member_id) {
+        state.settings.roomHostMemberId = currentRoom.host_member_id;
+        saveSettings();
+        if (state.onRemoteRoomControl) {
+          await state.onRemoteRoomControl({
+            action: "ownership_transferred",
+            roomId: state.settings.roomId,
+            previousHostMemberId: memberId(),
+            newHostMemberId: currentRoom.host_member_id,
+            newHostDisplayName: "...",
+            adminMemberIds: state.roomAdminMemberIds || []
+          });
+        }
+      }
     }
   }
   async function upsertRoomMember(client) {
@@ -1443,7 +1461,8 @@
     state.settings.isHost = false;
   }
   async function transferOwnershipOnHostLeave() {
-    const candidates = await fetchRoomMembers({ includeStale: false, excludeSelf: true });
+    const members = await fetchRoomMembers({ includeStale: false, excludeSelf: true });
+    const candidates = members.map((member) => ({ ...member, lastSeenMs: readMemberLastSeenMs(member) })).filter((member) => Number.isFinite(member.lastSeenMs)).sort(sortFallbackCandidates);
     if (candidates.length > 0) {
       const fallbackTarget = candidates[0];
       try {
