@@ -320,10 +320,11 @@ export function computeBilibiliSyntheticState() {
         ? 0
         : ((nowMs() - state.bilibili.startedAt) / 1000) * state.bilibili.playbackRate;
     const sourceUrl = state.bilibili.sourceUrl || state.settings.mediaUrl || '';
+    const isLocalVideo = sourceUrl.startsWith('local://');
     const isVideoURL = /\.(mp4|webm|ogg|m3u8|mkv|mov|flv)(\?|#|$)/i.test(sourceUrl);
     const youtubeId = parseYouTubeVideoId(sourceUrl);
     const bvid = state.bilibili.bvid || parseBilibiliBvid(sourceUrl) || '';
-    const mediaKind = youtubeId ? 'youtube' : (isVideoURL ? 'video' : 'bilibili');
+    const mediaKind = isLocalVideo ? 'local_video' : (youtubeId ? 'youtube' : (isVideoURL ? 'video' : 'bilibili'));
 
     return {
         mediaKind,

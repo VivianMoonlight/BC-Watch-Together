@@ -830,6 +830,7 @@ function normalizeBilibiliSourceForSync(sourceUrl) {
 function detectMediaKind(sourceUrl) {
     const source = String(sourceUrl || '').trim();
     if (!source) return 'bilibili';
+    if (source.startsWith('local://')) return 'local_video';
     if (parseYouTubeVideoId(source) || isYouTubeUrl(source)) return 'youtube';
     if (/\.(mp4|webm|ogg|m3u8|mkv|mov|flv)(\?|#|$)/i.test(source)) return 'video';
     return 'bilibili';
@@ -949,6 +950,12 @@ function renderHighQualityPlaceholder() {
 
 function extractCurrentBvid() {
     const currentSource = String(computeBilibiliSyntheticState().sourceUrl || state.bilibili.sourceUrl || '');
+    
+    if (currentSource.startsWith('local://')) {
+        const fileHash = currentSource.replace('local://', '');
+        return `local:${fileHash}`;
+    }
+    
     const currentBvidMatch = currentSource.match(/(BV[0-9A-Za-z]{10,})/i);
     if (currentBvidMatch) return `bili:${currentBvidMatch[1].toUpperCase()}`;
 
@@ -976,7 +983,10 @@ function getCurrentPlayingVideoIndex() {
         const candidateYoutubeId = parseYouTubeVideoId(candidateUrl) || '';
         const isVideoURL = /\.(mp4|webm|ogg|m3u8|mkv|mov|flv)(\?|#|$)/i.test(candidateUrl);
         let candidateKey = '';
-        if (candidateBvid.startsWith('BV')) {
+        
+        if (candidate?.mediaKind === 'local_video' && candidateBvid.startsWith('#local_')) {
+            candidateKey = `local:${candidateBvid.replace('#local_', '')}`;
+        } else if (candidateBvid.startsWith('BV')) {
             candidateKey = `bili:${candidateBvid}`;
         } else if (candidateYoutubeId) {
             candidateKey = `yt:${candidateYoutubeId}`;
@@ -3046,7 +3056,9 @@ function showPlayerMode() {
                     <div class="video-list-header-row">
                         <button id="bclt-btn-import-playlist" class="btn-neutral btn-small playlist-io-btn" type="button">${t('player_import_btn')}</button>
                         <button id="bclt-btn-export-playlist" class="btn-neutral btn-small playlist-io-btn" type="button">${t('player_export_btn')}</button>
+                        <button id="bclt-btn-import-local-video" class="btn-neutral btn-small playlist-io-btn" type="button">导入本地视频</button>
                         <input id="bclt-import-playlist-input" type="file" accept="application/json,.json" style="display:none" />
+                        <input id="bclt-import-video-input" type="file" accept="video/*" multiple style="display:none" />
                         <div id="bclt-mode-slider" class="mode-slider" data-mode="list" title="${t('player_mode_title')}">
                             <button class="mode-slider-btn" data-mode="list" type="button" title="${t('mode_list_loop')}">🔁</button>
                             <button class="mode-slider-btn" data-mode="single" type="button" title="${t('mode_single_loop')}">🔂</button>
@@ -3100,7 +3112,8 @@ function showPlayerMode() {
     const importPlaylistBtn = windowInstance.content.querySelector('#bclt-btn-import-playlist');
     const exportPlaylistBtn = windowInstance.content.querySelector('#bclt-btn-export-playlist');
     const importPlaylistInput = windowInstance.content.querySelector('#bclt-import-playlist-input');
-    const managePermissionsBtn = windowInstance.content.querySelector('#bclt-btn-manage-permissions');
+      const importVideoBtn = windowInstance.content.querySelector('#bclt-btn-import-local-video');
+      const importVideoInput = windowInstance.content.querySelector('#bclt-import-video-input');
     const modeButtons = windowInstance.content.querySelectorAll('.mode-slider-btn');
 
     syncProgressCheckbox.checked = state.settings.syncPlaybackProgress !== false;
@@ -3214,12 +3227,22 @@ function showPlayerMode() {
         importPlaylistInput.click();
     });
 
-    importPlaylistInput.addEventListener('change', async () => {
-        const file = importPlaylistInput.files && importPlaylistInput.files[0];
-        importPlaylistInput.value = '';
-        if (!file) return;
-        await importPlaylistFromJsonFile(file);
-    });
+      importVideoBtn.addEventListener('click', () => {
+          if (!canManagePlaylist()) {
+              alert(t('host_admin_add_video'));
+              return;
+          }
+          importVideoInput.click();
+      });
+
+      importVideoInput.addEventListener('change', async (event) => {
+          if (!canManagePlaylist()) return;
+          const files = Array.from(event.target.files || []);
+          for (const file of files) {
+              await addLocalVideoToRoom(file);
+          }
+          importVideoInput.value = '';
+      });
 
     managePermissionsBtn.addEventListener('click', async () => {
         if (!state.settings.isHost) {
@@ -3408,6 +3431,87 @@ async function importPlaylistFromJsonFile(file) {
     }
 
     updatePlaybackUi(t('playlist_import_result', { success, failed }));
+}
+
+// Simple hash function to generate a unique identifier for a file
+function hashFileIdentifier(file) {
+    const name = file.name || 'unknown';
+    const size = file.size || 0;
+    const lastModified = file.lastModified || 0;
+    const combined = `${name}|${size}|${lastModified}`;
+    let hash = 0;
+    for (let i = 0; i < combined.length; i++) {
+        const char = combined.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash;
+    }
+    return Math.abs(hash).toString(36).substring(0, 12);
+}
+
+// Store local video files in a map for later retrieval
+const localVideoFilesByHash = new Map();
+
+async function addLocalVideoToRoom(file) {
+    if (!canManagePlaylist()) {
+        alert(t('host_admin_add_video'));
+        return;
+    }
+
+    if (!file || !file.type.startsWith('video/')) {
+        alert('Please select a valid video file');
+        return;
+    }
+
+    try {
+        const fileHash = hashFileIdentifier(file);
+        const fileName = file.name || 'Local Video';
+        const title = fileName.replace(/\.[^/.]+$/, '');
+        
+        // Store the file for later access
+        localVideoFilesByHash.set(fileHash, {
+            file,
+            name: fileName,
+            size: file.size,
+            time: Date.now(),
+        });
+
+        // Create a special local video URL
+        const localVideoUrl = `local://${fileHash}`;
+
+        // Add to active videos locally
+        const senderName = effectiveDisplayName();
+        const shareId = `${memberId()}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        mergeActiveVideos([{
+            shareId,
+            sender: senderName,
+            title,
+            bvid: `#local_${fileHash}`,
+            mediaKind: 'local_video',
+            url: localVideoUrl,
+            timestamp: Date.now(),
+        }]);
+
+        // Publish to room
+        await publish('video_shared', {
+            shareId,
+            bvid: `#local_${fileHash}`,
+            mediaKind: 'local_video',
+            title,
+            url: localVideoUrl,
+            senderName: senderName,
+            fileHash,
+            fileName,
+            fileSize: file.size,
+        });
+
+        updateVideoList();
+        logStatus(`Added local video: ${title}`);
+        return true;
+    } catch (error) {
+        alert(`Error adding local video: ${error.message}`);
+        console.error('[BCLT] Error adding local video:', error);
+        return false;
+    }
 }
 
 async function addVideoToRoom(bilibiliBvId, options = {}) {
@@ -3814,7 +3918,29 @@ async function applyRoomPlaybackState(nextState, options = {}) {
         }
     } else if (shouldReload) {
         closeHighQualityPlaybackTab();
-        if (mediaKind === 'video') {
+        if (mediaKind === 'local_video') {
+            const fileHash = sourceUrl.replace('local://', '');
+            const fileInfo = localVideoFilesByHash.get(fileHash);
+            
+            if (fileInfo && fileInfo.file) {
+                const objectUrl = URL.createObjectURL(fileInfo.file);
+                playerContainer.innerHTML = `<video src="${objectUrl}" style="width:100%;height:100%;background:#000;" controls></video>`;
+                const videoEl = playerContainer.querySelector('video');
+                videoEl.currentTime = targetTime;
+                if (!incomingPaused) {
+                    videoEl.play().catch(e => console.warn('[BCLT] Video play blocked:', e));
+                }
+            } else {
+                // File not available locally, show placeholder but keep controls
+                playerContainer.innerHTML = `<div style="width:100%;height:100%;background:#000;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;">
+                    <div style="text-align:center;">
+                        <div>⚠️ Local video not available</div>
+                        <div style="font-size:12px;margin-top:8px;">File hash: ${fileHash.substring(0, 8)}...</div>
+                        <div style="font-size:12px;margin-top:4px;">Sync controls remain active</div>
+                    </div>
+                </div>`;
+            }
+        } else if (mediaKind === 'video') {
             playerContainer.innerHTML = `<video src="${sourceUrl}" style="width:100%;height:100%;background:#000;" controls></video>`;
             const videoEl = playerContainer.querySelector('video');
             videoEl.currentTime = targetTime;
@@ -3887,6 +4013,24 @@ async function playVideo(target, options = {}) {
     const sourceText = typeof target === 'string'
         ? target
         : String(target?.url || target?.sourceUrl || target?.bvid || '');
+    
+    const mediaKind = target?.mediaKind || 'bilibili';
+    
+    // Handle local video URLs (local://hash format)
+    if (sourceText.startsWith('local://')) {
+        const fileHash = sourceText.replace('local://', '');
+        const fileInfo = localVideoFilesByHash.get(fileHash);
+        
+        if (!fileInfo || !fileInfo.file) {
+            logStatus(`⚠️ Local video not found on this system (hash: ${fileHash.substring(0, 6)}...)`);
+        } else {
+            logStatus(`Playing local video: ${fileInfo.name}`);
+        }
+        
+        // Continue with the playback sync even if file doesn't exist locally
+        // The UI will show controls and sync info, but video won't actually play
+    }
+    
     const youtubeId = parseYouTubeVideoId(sourceText);
     const bvid = parseBilibiliBvid(sourceText);
     const sourceUrl = youtubeId
@@ -3917,11 +4061,24 @@ function initializeRoomMode(playerContainer, videoList, statusEl) {
             }
 
             const sender = payload.senderName || payload.sender || 'Unknown';
+            
+            // For local videos, store the file hash information
+            if (payload.mediaKind === 'local_video' && payload.fileHash) {
+                localVideoFilesByHash.set(payload.fileHash, {
+                    remote: true,
+                    name: payload.fileName || 'Remote Local Video',
+                    size: payload.fileSize || 0,
+                    time: Date.now(),
+                    senderId: payload.senderId,
+                });
+            }
+
             mergeActiveVideos([{
                 shareId: payload.shareId || '',
                 sender,
                 title: payload.title || payload.videoTitle || payload.bvid,
                 bvid: payload.bvid,
+                mediaKind: payload.mediaKind || 'bilibili',
                 url: payload.url || `https://www.bilibili.com/video/${payload.bvid}`,
                 timestamp: Number(payload.timestamp || Date.now()),
             }]);
