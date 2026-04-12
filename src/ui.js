@@ -845,12 +845,30 @@ function normalizeBilibiliSourceForSync(sourceUrl) {
     }
 }
 
+const DIRECT_MEDIA_URL_RE = /\.(mp4|webm|ogg|m3u8|mkv|mov|flv|mp3|m4a|aac|wav|flac|opus|oga|weba)(\?|#|$)/i;
+
+function isDirectMediaUrl(sourceUrl) {
+    const source = String(sourceUrl || '').trim();
+    if (!source) return false;
+    return DIRECT_MEDIA_URL_RE.test(source);
+}
+
+function isSupportedLocalMediaFile(file) {
+    if (!file) return false;
+
+    const mime = String(file.type || '').toLowerCase();
+    if (mime.startsWith('video/') || mime.startsWith('audio/')) return true;
+
+    const fileName = String(file.name || '');
+    return DIRECT_MEDIA_URL_RE.test(fileName);
+}
+
 function detectMediaKind(sourceUrl) {
     const source = String(sourceUrl || '').trim();
     if (!source) return 'bilibili';
     if (source.startsWith('local://')) return 'local_video';
     if (parseYouTubeVideoId(source) || isYouTubeUrl(source)) return 'youtube';
-    if (/\.(mp4|webm|ogg|m3u8|mkv|mov|flv)(\?|#|$)/i.test(source)) return 'video';
+    if (isDirectMediaUrl(source)) return 'video';
     return 'bilibili';
 }
 
@@ -916,6 +934,16 @@ function buildBilibiliWatchUrl(sourceUrl, currentTime = 0, { autoplay = true } =
     } catch (error) {
         return null;
     }
+}
+
+function canUseHighQualityTabForSource(sourceUrl, currentTime = 0) {
+    const source = String(sourceUrl || '').trim();
+    if (!source) return false;
+
+    // YouTube stays inline due to popup control limitations.
+    if (detectMediaKind(source) === 'youtube') return false;
+
+    return !!buildBilibiliWatchUrl(source, currentTime, { autoplay: true });
 }
 
 function updateOrOpenHighQualityPlaybackTab(sourceUrl, currentTime, { autoplay = true, allowOpen = true } = {}) {
@@ -1006,7 +1034,7 @@ function extractCurrentBvid() {
     const currentSource = String(computeBilibiliSyntheticState().sourceUrl || state.bilibili.sourceUrl || '');
     
     if (currentSource.startsWith('local://')) {
-        const fileHash = currentSource.replace('local://', '');
+        const fileHash = currentSource.replace('local://', '').toLowerCase();
         return `local:${fileHash}`;
     }
     
@@ -1016,7 +1044,7 @@ function extractCurrentBvid() {
     const youtubeId = parseYouTubeVideoId(currentSource);
     if (youtubeId) return `yt:${youtubeId}`;
 
-    if (/\.(mp4|webm|ogg|m3u8|mkv|mov|flv)(\?|#|$)/i.test(currentSource)) {
+    if (isDirectMediaUrl(currentSource)) {
         const parts = currentSource.split(/[\/\?#]+/);
         let mediaId = parts[parts.length - 1] || 'video';
         if (mediaId.length > 50) mediaId = mediaId.substring(0, 30) + '...';
@@ -1032,14 +1060,16 @@ function getCurrentPlayingVideoIndex() {
     // When duplicate BVIDs exist, prefer the latest one so only one row is marked as now playing.
     for (let index = activeVideos.length - 1; index >= 0; index -= 1) {
         const candidate = activeVideos[index];
-        const candidateBvid = String(candidate?.bvid || '').toUpperCase();
+        const candidateBvidRaw = String(candidate?.bvid || '');
+        const candidateBvid = candidateBvidRaw.toUpperCase();
         const candidateUrl = String(candidate?.url || candidate?.sourceUrl || '');
         const candidateYoutubeId = parseYouTubeVideoId(candidateUrl) || '';
-        const isVideoURL = /\.(mp4|webm|ogg|m3u8|mkv|mov|flv)(\?|#|$)/i.test(candidateUrl);
+        const isVideoURL = isDirectMediaUrl(candidateUrl);
         let candidateKey = '';
         
-        if (candidate?.mediaKind === 'local_video' && candidateBvid.startsWith('#local_')) {
-            candidateKey = `local:${candidateBvid.replace('#local_', '')}`;
+        if (candidate?.mediaKind === 'local_video' && /^#local_/i.test(candidateBvidRaw)) {
+            const localHash = candidateBvidRaw.replace(/^#local_/i, '').toLowerCase();
+            candidateKey = localHash ? `local:${localHash}` : '';
         } else if (candidateBvid.startsWith('BV')) {
             candidateKey = `bili:${candidateBvid}`;
         } else if (candidateYoutubeId) {
@@ -3168,8 +3198,8 @@ function showPlayerMode() {
                         </div>
                     </div>
                     <input id="bclt-import-playlist-input" type="file" accept="application/json,.json" style="display:none" />
-                    <input id="bclt-add-local-video-input" type="file" accept="video/*" multiple style="display:none" />
-                    <input id="bclt-register-local-video-input" type="file" accept="video/*" multiple style="display:none" />
+                    <input id="bclt-add-local-video-input" type="file" accept="video/*,audio/*" multiple style="display:none" />
+                    <input id="bclt-register-local-video-input" type="file" accept="video/*,audio/*" multiple style="display:none" />
                 </div>
                 <div class="video-list-content" id="bclt-video-list"></div>
                 <div class="video-list-footer">
@@ -3595,7 +3625,7 @@ const localVideoFilesByHash = new Map();
 function registerLocalVideoFile(file, options = {}) {
     const { announce = true } = options;
 
-    if (!file || !String(file.type || '').startsWith('video/')) {
+    if (!isSupportedLocalMediaFile(file)) {
         if (announce) {
             alert(t('local_video_register_invalid'));
         }
@@ -3691,7 +3721,7 @@ async function addVideoToRoom(bilibiliBvId, options = {}) {
             : sourceText;
 
         const youtubeId = parseYouTubeVideoId(sourceText || inputBvid);
-        const isVideoURL = /\.(mp4|webm|ogg|m3u8|mkv|mov|flv)(\?|#|$)/i.test(sourceText || inputBvid);
+        const isVideoURL = isDirectMediaUrl(sourceText || inputBvid);
         const mediaKind = youtubeId ? 'youtube' : (isVideoURL ? 'video' : 'bilibili');
 
         let mediaId = inputBvid;
@@ -4041,7 +4071,10 @@ async function applyRoomPlaybackState(nextState, options = {}) {
     const iframeEl = windowInstance?.content?.querySelector('#bclt-player-container iframe, #bclt-player-container video');
     if (!playerContainer) return false;
     const mediaKind = detectMediaKind(sourceUrl);
-    const highQualityMode = isHighQualityTabModeEnabled() && mediaKind !== 'youtube';
+    const userEnabledHighQualityTab = isHighQualityTabModeEnabled();
+    const sourceAllowsHighQualityTab = canUseHighQualityTabForSource(sourceUrl, targetTime);
+    const highQualityMode = userEnabledHighQualityTab && sourceAllowsHighQualityTab;
+    const shouldDriveHighQualityTab = highQualityMode && !incomingPaused;
 
     // YouTube is defaulted to inline mode to avoid popup control limitations.
     if (mediaKind === 'youtube') {
@@ -4115,7 +4148,7 @@ async function applyRoomPlaybackState(nextState, options = {}) {
         renderHighQualityPlaceholder();
         console.log('[BCLT] High-quality tab mode enabled, shouldReload:', shouldReload);
         if (shouldReload) {
-            if (incomingPaused) {
+            if (!shouldDriveHighQualityTab) {
                 console.log('[BCLT] HQ mode paused: closing popup window instead of relying on autoplay flag.');
                 closeHighQualityPlaybackTab();
                 updatePlaybackUi(t('hq_paused_parked'));
@@ -4394,7 +4427,7 @@ function initializeRoomMode(playerContainer, videoList, statusEl) {
             || !!parseYouTubeVideoId(sourceUrl)
             || String(sourceUrl).startsWith('local://')
             || payload.mediaKind === 'local_video'
-            || /\.(mp4|webm|ogg|m3u8|mkv|mov|flv)(\?|#|$)/i.test(sourceUrl);
+            || isDirectMediaUrl(sourceUrl);
         if (!isSupported || !sourceUrl) return false;
 
         const localSyncProgress = state.settings.syncPlaybackProgress !== false;
