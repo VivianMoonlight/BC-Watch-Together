@@ -831,6 +831,7 @@ function detectMediaKind(sourceUrl) {
     const source = String(sourceUrl || '').trim();
     if (!source) return 'bilibili';
     if (parseYouTubeVideoId(source) || isYouTubeUrl(source)) return 'youtube';
+    if (/\.(mp4|webm|ogg|m3u8|mkv|mov|flv)(\?|#|$)/i.test(source)) return 'video';
     return 'bilibili';
 }
 
@@ -854,6 +855,12 @@ function buildBilibiliWatchUrl(sourceUrl, currentTime = 0, { autoplay = true } =
         }
 
         const seconds = Math.max(1, Math.floor(Number(currentTime) || 0));
+        
+        if (detectMediaKind(sourceUrl) === 'video') {
+            url.hash = `#t=${seconds}`;
+            return url.toString();
+        }
+
         url.searchParams.set('t', String(seconds));
 
         if (autoplay) {
@@ -948,6 +955,13 @@ function extractCurrentBvid() {
     const youtubeId = parseYouTubeVideoId(currentSource);
     if (youtubeId) return `yt:${youtubeId}`;
 
+    if (/\.(mp4|webm|ogg|m3u8|mkv|mov|flv)(\?|#|$)/i.test(currentSource)) {
+        const parts = currentSource.split(/[\/\?#]+/);
+        let mediaId = parts[parts.length - 1] || 'video';
+        if (mediaId.length > 50) mediaId = mediaId.substring(0, 30) + '...';
+        return `vid:${mediaId}`;
+    }
+
     return '';
 }
 
@@ -958,9 +972,22 @@ function getCurrentPlayingVideoIndex() {
     for (let index = activeVideos.length - 1; index >= 0; index -= 1) {
         const candidate = activeVideos[index];
         const candidateBvid = String(candidate?.bvid || '').toUpperCase();
-        const candidateYoutubeId = parseYouTubeVideoId(candidate?.url || candidate?.sourceUrl || '') || '';
-        const candidateKey = candidateBvid.startsWith('BV') ? `bili:${candidateBvid}` : (candidateYoutubeId ? `yt:${candidateYoutubeId}` : '');
-        if (candidateKey === currentBvid) {
+        const candidateUrl = String(candidate?.url || candidate?.sourceUrl || '');
+        const candidateYoutubeId = parseYouTubeVideoId(candidateUrl) || '';
+        const isVideoURL = /\.(mp4|webm|ogg|m3u8|mkv|mov|flv)(\?|#|$)/i.test(candidateUrl);
+        let candidateKey = '';
+        if (candidateBvid.startsWith('BV')) {
+            candidateKey = `bili:${candidateBvid}`;
+        } else if (candidateYoutubeId) {
+            candidateKey = `yt:${candidateYoutubeId}`;
+        } else if (isVideoURL || candidate?.mediaKind === 'video') {
+            const parts = candidateUrl.split(/[\/\?#]+/);
+            let mediaId = parts[parts.length - 1] || candidateBvid || 'video';
+            if (mediaId.length > 50) mediaId = mediaId.substring(0, 30) + '...';
+            candidateKey = `vid:${mediaId}`;
+        }
+
+        if (candidateKey && candidateKey === currentBvid) {
             return index;
         }
     }
@@ -3392,11 +3419,16 @@ async function addVideoToRoom(bilibiliBvId, options = {}) {
             : sourceText;
 
         const youtubeId = parseYouTubeVideoId(sourceText || inputBvid);
-        const mediaKind = youtubeId ? 'youtube' : 'bilibili';
+        const isVideoURL = /\.(mp4|webm|ogg|m3u8|mkv|mov|flv)(\?|#|$)/i.test(sourceText || inputBvid);
+        const mediaKind = youtubeId ? 'youtube' : (isVideoURL ? 'video' : 'bilibili');
 
         let mediaId = inputBvid;
         if (mediaKind === 'youtube') {
             mediaId = youtubeId;
+        } else if (mediaKind === 'video') {
+            const parts = (sourceText || inputBvid).split(/[\/\?#]+/);
+            mediaId = parts[parts.length - 1] || 'video';
+            if (mediaId.length > 50) mediaId = mediaId.substring(0, 30) + '...';
         } else if (sourceText.includes('bilibili.com') || sourceText.includes('b23.tv')) {
             const match = sourceText.match(/(BV[0-9A-Za-z]{10,})/i);
             if (!match) throw new Error('Cannot extract BV ID from URL');
@@ -3413,14 +3445,22 @@ async function addVideoToRoom(bilibiliBvId, options = {}) {
         const titleCandidate = typeof bilibiliBvId === 'object' && bilibiliBvId?.title
             ? sanitizeBilibiliText(bilibiliBvId.title)
             : '';
-        const title = titleCandidate || (mediaKind === 'bilibili'
-            ? await fetchBilibiliVideoTitleByBvid(mediaId)
-            : (await fetchYouTubeTitleByVideoId(mediaId) || `Video ${mediaId}`));
+        let title = '';
+        if (titleCandidate) {
+            title = titleCandidate;
+        } else if (mediaKind === 'youtube') {
+            title = await fetchYouTubeTitleByVideoId(mediaId) || `Video ${mediaId}`;
+        } else if (mediaKind === 'video') {
+            title = decodeURIComponent(mediaId);
+        } else {
+            title = await fetchBilibiliVideoTitleByBvid(mediaId);
+        }
+
         const videoUrl = typeof bilibiliBvId === 'object' && bilibiliBvId?.url
             ? String(bilibiliBvId.url)
             : (mediaKind === 'youtube'
                 ? normalizeYouTubeSourceUrl(`https://www.youtube.com/watch?v=${mediaId}`)
-                : `https://www.bilibili.com/video/${mediaId}`);
+                : (mediaKind === 'video' ? (sourceText || inputBvid) : `https://www.bilibili.com/video/${mediaId}`));
 
         // Add to active videos locally
         const senderName = effectiveDisplayName();
@@ -3678,12 +3718,12 @@ async function applyRoomPlaybackState(nextState, options = {}) {
         : current.playbackRate;
 
     const playerContainer = windowInstance?.content?.querySelector('#bclt-player-container');
-    const iframeEl = windowInstance?.content?.querySelector('#bclt-player-container iframe');
+    const iframeEl = windowInstance?.content?.querySelector('#bclt-player-container iframe, #bclt-player-container video');
     if (!playerContainer) return false;
     const mediaKind = detectMediaKind(sourceUrl);
     const highQualityMode = isHighQualityTabModeEnabled() && mediaKind !== 'youtube';
 
-    // YouTube is defaulted to inline iframe mode to avoid popup control limitations.
+    // YouTube is defaulted to inline mode to avoid popup control limitations.
     if (mediaKind === 'youtube') {
         closeHighQualityPlaybackTab();
     }
@@ -3695,9 +3735,26 @@ async function applyRoomPlaybackState(nextState, options = {}) {
     const rateChanged = incomingRate !== current.playbackRate;
     const isRemoteSyncReason = reason === 'remote-sync' || reason === 'remote-playlist-state';
     const missingInlineIframe = !highQualityMode && !iframeEl;
-    const shouldReloadByState = forceReload || missingInlineIframe || sourceChanged || pausedChanged || rateChanged;
+    const isInlineVideo = !highQualityMode && mediaKind === 'video';
+    const shouldReloadByState = forceReload || missingInlineIframe || sourceChanged || (!isInlineVideo && (pausedChanged || rateChanged));
     const shouldReloadByDrift = syncProgress && driftSeconds > thresholdSeconds;
-    let shouldReload = shouldReloadByState || shouldReloadByDrift;
+    let shouldReload = shouldReloadByState || (!isInlineVideo && shouldReloadByDrift);
+
+    if (isInlineVideo && !shouldReloadByState && !sourceChanged && !missingInlineIframe) {
+        const videoEl = windowInstance?.content?.querySelector('#bclt-player-container video');
+        if (videoEl) {
+            if (shouldReloadByDrift) {
+                videoEl.currentTime = targetTime;
+            }
+            if (pausedChanged) {
+                if (incomingPaused && !videoEl.paused) videoEl.pause();
+                if (!incomingPaused && videoEl.paused) videoEl.play().catch(e => console.warn('[BCLT] play:', e));
+            }
+            if (rateChanged) {
+                videoEl.playbackRate = incomingRate;
+            }
+        }
+    }
 
     setBilibiliSyntheticState({
         sourceUrl,
@@ -3757,17 +3814,26 @@ async function applyRoomPlaybackState(nextState, options = {}) {
         }
     } else if (shouldReload) {
         closeHighQualityPlaybackTab();
-        const playerUrl = detectMediaKind(sourceUrl) === 'youtube'
-            ? buildYouTubePlayerUrl(sourceUrl, {
-                currentTime: targetTime,
-                autoplay: !incomingPaused,
-            })
-            : buildBilibiliPlayerUrl(sourceUrl, {
-                currentTime: targetTime,
-                autoplay: !incomingPaused,
-            });
-        if (!playerUrl) return false;
-        playerContainer.innerHTML = `<iframe src="${playerUrl}" allow="autoplay; encrypted-media" allowfullscreen></iframe>`;
+        if (mediaKind === 'video') {
+            playerContainer.innerHTML = `<video src="${sourceUrl}" style="width:100%;height:100%;background:#000;" controls></video>`;
+            const videoEl = playerContainer.querySelector('video');
+            videoEl.currentTime = targetTime;
+            if (!incomingPaused) {
+                videoEl.play().catch(e => console.warn('[BCLT] Video play blocked:', e));
+            }
+        } else {
+            const playerUrl = mediaKind === 'youtube'
+                ? buildYouTubePlayerUrl(sourceUrl, {
+                    currentTime: targetTime,
+                    autoplay: !incomingPaused,
+                })
+                : buildBilibiliPlayerUrl(sourceUrl, {
+                    currentTime: targetTime,
+                    autoplay: !incomingPaused,
+                });
+            if (!playerUrl) return false;
+            playerContainer.innerHTML = `<iframe src="${playerUrl}" allow="autoplay; encrypted-media" allowfullscreen></iframe>`;
+        }
     }
 
     updatePlaybackUi(statusHint);
@@ -3932,7 +3998,8 @@ function initializeRoomMode(playerContainer, videoList, statusEl) {
             || (payload.bvid ? `https://www.bilibili.com/video/${payload.bvid}` : '');
         const isSupported = /bilibili\.com|b23\.tv|BV[0-9A-Za-z]{10,}/i.test(sourceUrl)
             || isYouTubeUrl(sourceUrl)
-            || !!parseYouTubeVideoId(sourceUrl);
+            || !!parseYouTubeVideoId(sourceUrl)
+            || /\.(mp4|webm|ogg|m3u8|mkv|mov|flv)(\?|#|$)/i.test(sourceUrl);
         if (!isSupported || !sourceUrl) return false;
 
         const localSyncProgress = state.settings.syncPlaybackProgress !== false;

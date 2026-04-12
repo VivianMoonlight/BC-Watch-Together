@@ -261,11 +261,43 @@ async function fetchBilibiliDuration(bvid, sourceUrl) {
     }
 }
 
+async function fetchVideoDuration(sourceUrl) {
+    return new Promise((resolve) => {
+        const video = document.createElement('video');
+        video.preload = 'metadata';
+        let timeoutId = setTimeout(() => {
+            video.onloadedmetadata = null;
+            video.onerror = null;
+            resolve(null);
+        }, 10000);
+
+        video.onloadedmetadata = () => {
+            clearTimeout(timeoutId);
+            resolve(video.duration);
+        };
+
+        video.onerror = () => {
+            clearTimeout(timeoutId);
+            resolve(null);
+        };
+        video.src = sourceUrl;
+    });
+}
+
 export async function hydrateBilibiliDuration(sourceUrl) {
     const normalizedSource = normalizeBilibiliSourceUrl(sourceUrl);
     const youtubeId = parseYouTubeVideoId(normalizedSource);
     if (youtubeId) {
         const duration = await fetchYouTubeDurationByVideoId(youtubeId);
+        if (normalizedSource === state.bilibili.sourceUrl && Number.isFinite(duration) && duration > 0) {
+            state.bilibili.duration = Math.max(1, Math.floor(duration));
+        }
+        return Number.isFinite(duration) && duration > 0 ? Math.max(1, Math.floor(duration)) : null;
+    }
+
+    const isVideoURL = /\.(mp4|webm|ogg|m3u8|mkv|mov|flv)(\?|#|$)/i.test(normalizedSource);
+    if (isVideoURL) {
+        const duration = await fetchVideoDuration(normalizedSource);
         if (normalizedSource === state.bilibili.sourceUrl && Number.isFinite(duration) && duration > 0) {
             state.bilibili.duration = Math.max(1, Math.floor(duration));
         }
@@ -288,9 +320,10 @@ export function computeBilibiliSyntheticState() {
         ? 0
         : ((nowMs() - state.bilibili.startedAt) / 1000) * state.bilibili.playbackRate;
     const sourceUrl = state.bilibili.sourceUrl || state.settings.mediaUrl || '';
+    const isVideoURL = /\.(mp4|webm|ogg|m3u8|mkv|mov|flv)(\?|#|$)/i.test(sourceUrl);
     const youtubeId = parseYouTubeVideoId(sourceUrl);
     const bvid = state.bilibili.bvid || parseBilibiliBvid(sourceUrl) || '';
-    const mediaKind = youtubeId ? 'youtube' : 'bilibili';
+    const mediaKind = youtubeId ? 'youtube' : (isVideoURL ? 'video' : 'bilibili');
 
     return {
         mediaKind,
