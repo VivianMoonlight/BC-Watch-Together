@@ -854,9 +854,35 @@ function detectMediaKind(sourceUrl) {
     return 'bilibili';
 }
 
+function resolveLocalVideoObjectUrlByHash(fileHash) {
+    const key = String(fileHash || '').trim();
+    if (!key) return '';
+
+    const entry = localVideoFilesByHash.get(key);
+    if (!entry || !entry.file) return '';
+    if (entry.objectUrl) return String(entry.objectUrl);
+
+    const objectUrl = URL.createObjectURL(entry.file);
+    localVideoFilesByHash.set(key, {
+        ...entry,
+        objectUrl,
+    });
+
+    return objectUrl;
+}
+
 function buildBilibiliWatchUrl(sourceUrl, currentTime = 0, { autoplay = true } = {}) {
     const source = String(sourceUrl || '').trim();
     if (!source) return null;
+
+    const mediaKind = detectMediaKind(source);
+    if (mediaKind === 'local_video') {
+        const fileHash = source.replace('local://', '');
+        const localObjectUrl = resolveLocalVideoObjectUrlByHash(fileHash);
+        if (!localObjectUrl) return null;
+        const seconds = Math.max(1, Math.floor(Number(currentTime) || 0));
+        return `${localObjectUrl}#t=${seconds}`;
+    }
 
     const youtubeWatchUrl = buildYouTubeWatchUrl(source, currentTime, { autoplay });
     if (youtubeWatchUrl) {
@@ -875,7 +901,7 @@ function buildBilibiliWatchUrl(sourceUrl, currentTime = 0, { autoplay = true } =
 
         const seconds = Math.max(1, Math.floor(Number(currentTime) || 0));
         
-        if (detectMediaKind(sourceUrl) === 'video') {
+        if (mediaKind === 'video') {
             url.hash = `#t=${seconds}`;
             return url.toString();
         }
@@ -892,8 +918,8 @@ function buildBilibiliWatchUrl(sourceUrl, currentTime = 0, { autoplay = true } =
     }
 }
 
-function updateOrOpenHighQualityPlaybackTab(sourceUrl, currentTime, { autoplay = true } = {}) {
-    console.log('[BCLT] updateOrOpenHighQualityPlaybackTab called', { sourceUrl, currentTime, autoplay, hasWindow: !!highQualityPlaybackTab });
+function updateOrOpenHighQualityPlaybackTab(sourceUrl, currentTime, { autoplay = true, allowOpen = true } = {}) {
+    console.log('[BCLT] updateOrOpenHighQualityPlaybackTab called', { sourceUrl, currentTime, autoplay, allowOpen, hasWindow: !!highQualityPlaybackTab });
 
     const watchUrl = buildBilibiliWatchUrl(sourceUrl, currentTime, { autoplay });
     if (!watchUrl) {
@@ -910,6 +936,11 @@ function updateOrOpenHighQualityPlaybackTab(sourceUrl, currentTime, { autoplay =
     try {
         if (highQualityPlaybackTab && !highQualityPlaybackTab.closed) {
             hadExistingTab = true;
+            const existingHref = String(highQualityPlaybackTab.location?.href || '');
+            if (existingHref === watchUrl) {
+                console.log('[BCLT] Popup already on target URL, skip navigation.');
+                return { ok: true, watchUrl, action: 'noop' };
+            }
             console.log('[BCLT] Popup window exists, updating location to new time...');
             highQualityPlaybackTab.location.href = watchUrl;
             console.log('[BCLT] Popup navigated to:', watchUrl);
@@ -918,6 +949,11 @@ function updateOrOpenHighQualityPlaybackTab(sourceUrl, currentTime, { autoplay =
     } catch (error) {
         console.warn('[BCLT] Failed to update existing popup location, will open new window:', error.message);
         highQualityPlaybackTab = null;
+    }
+
+    if (!allowOpen) {
+        console.log('[BCLT] Skipping popup open because allowOpen=false.');
+        return { ok: true, watchUrl, action: 'skipped' };
     }
 
     // Popup doesn't exist or proxy is detached. Re-target by stable window name.
@@ -2204,22 +2240,27 @@ export function createUI() {
         #bclt-window .video-toolbar-row {
             justify-content: space-between;
             align-items: center;
+            flex-wrap: nowrap;
         }
 
         #bclt-window .playlist-actions {
             display: flex;
-            flex-wrap: wrap;
+            flex-wrap: nowrap;
             gap: 8px;
             min-width: 0;
             flex: 1;
+            overflow-x: auto;
+            scrollbar-width: thin;
+            padding-bottom: 2px;
         }
 
         #bclt-window .playlist-io-btn {
             flex-shrink: 0;
             white-space: nowrap;
             border-radius: 999px;
-            padding-inline: 12px;
+            padding-inline: 10px;
             letter-spacing: 0.1px;
+            font-size: 11px;
         }
 
         #bclt-window .add-local-btn {
@@ -2232,7 +2273,7 @@ export function createUI() {
         }
 
         #bclt-window .video-toolbar-row .mode-slider {
-            margin-left: auto;
+            margin-left: 8px;
         }
 
         #bclt-window .add-video-input {
@@ -2649,14 +2690,6 @@ export function createUI() {
             #bclt-window .button-group,
             #bclt-window .player-controls {
                 grid-template-columns: 1fr;
-            }
-
-            #bclt-window .video-toolbar-row {
-                justify-content: flex-start;
-            }
-
-            #bclt-window .video-toolbar-row .mode-slider {
-                margin-left: 0;
             }
 
             #bclt-window .panel-title-row {
@@ -3573,6 +3606,11 @@ function registerLocalVideoFile(file, options = {}) {
     const fileName = file.name || 'Local Video';
     const title = fileName.replace(/\.[^/.]+$/, '');
     const existing = localVideoFilesByHash.get(fileHash) || {};
+    const hasFileChanged = !!existing.file && existing.file !== file;
+
+    if (hasFileChanged && existing.objectUrl) {
+        URL.revokeObjectURL(existing.objectUrl);
+    }
 
     localVideoFilesByHash.set(fileHash, {
         ...existing,
@@ -3581,6 +3619,7 @@ function registerLocalVideoFile(file, options = {}) {
         size: file.size,
         time: Date.now(),
         remote: existing.remote === true,
+        objectUrl: hasFileChanged ? '' : (existing.objectUrl || ''),
     });
 
     if (announce) {
@@ -4082,16 +4121,26 @@ async function applyRoomPlaybackState(nextState, options = {}) {
                 updatePlaybackUi(t('hq_paused_parked'));
                 highQualityTabLastSyncAt = Date.now();
             } else {
+                const hasExistingTab = !!(highQualityPlaybackTab && !highQualityPlaybackTab.closed);
+                const allowOpen = hasExistingTab || !isRemoteSyncReason || sourceChanged;
                 console.log('[BCLT] Attempting to update or open high-quality playback tab...');
-                const result = updateOrOpenHighQualityPlaybackTab(sourceUrl, targetTime, { autoplay: true });
+                const result = updateOrOpenHighQualityPlaybackTab(sourceUrl, targetTime, { autoplay: true, allowOpen });
                 console.log('[BCLT] Tab operation result:', result);
                 if (!result.ok) {
-                    console.warn('[BCLT] Tab operation failed:', result.message);
-                    updatePlaybackUi(result.message || 'HQ tab operation failed');
+                    const noLocalFileForTab = mediaKind === 'local_video' && !resolveLocalVideoObjectUrlByHash(sourceUrl.replace('local://', ''));
+                    const fallbackMessage = noLocalFileForTab
+                        ? 'Local video not registered on this device for tab mode'
+                        : 'HQ tab operation failed';
+                    console.warn('[BCLT] Tab operation failed:', result.message || fallbackMessage);
+                    updatePlaybackUi(result.message || fallbackMessage);
                 } else {
-                    const actionText = result.action === 'updated' ? 'Updated' : 'Opened';
-                    updatePlaybackUi(`${actionText} playback tab: ${result.watchUrl.split('/').slice(-1)[0]}`);
-                    highQualityTabLastSyncAt = Date.now();
+                    if (result.action === 'skipped' || result.action === 'noop') {
+                        updatePlaybackUi('HQ tab unchanged');
+                    } else {
+                        const actionText = result.action === 'updated' ? 'Updated' : 'Opened';
+                        updatePlaybackUi(`${actionText} playback tab: ${result.watchUrl.split('/').slice(-1)[0]}`);
+                        highQualityTabLastSyncAt = Date.now();
+                    }
                 }
             }
         } else {
@@ -4104,7 +4153,7 @@ async function applyRoomPlaybackState(nextState, options = {}) {
             const fileInfo = localVideoFilesByHash.get(fileHash);
             
             if (fileInfo && fileInfo.file) {
-                const objectUrl = URL.createObjectURL(fileInfo.file);
+                const objectUrl = resolveLocalVideoObjectUrlByHash(fileHash);
                 playerContainer.innerHTML = `<video src="${objectUrl}" style="width:100%;height:100%;background:#000;" controls></video>`;
                 const videoEl = playerContainer.querySelector('video');
                 bindInlineVideoStateSync(videoEl, sourceUrl);
