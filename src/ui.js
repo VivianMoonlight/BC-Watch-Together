@@ -3433,19 +3433,17 @@ async function importPlaylistFromJsonFile(file) {
     updatePlaybackUi(t('playlist_import_result', { success, failed }));
 }
 
-// Simple hash function to generate a unique identifier for a file
+// Generate file identifier based only on file size to ensure same-sized files share the same hash
 function hashFileIdentifier(file) {
-    const name = file.name || 'unknown';
     const size = file.size || 0;
-    const lastModified = file.lastModified || 0;
-    const combined = `${name}|${size}|${lastModified}`;
-    let hash = 0;
-    for (let i = 0; i < combined.length; i++) {
-        const char = combined.charCodeAt(i);
-        hash = ((hash << 5) - hash) + char;
-        hash = hash & hash;
+    // Simple hash from size to ensure consistency across users
+    // Multiple files with same size will have same hash (intentional - size-based matching)
+    let hash = 5381;
+    const sizeStr = String(size);
+    for (let i = 0; i < sizeStr.length; i++) {
+        hash = ((hash << 5) + hash) + sizeStr.charCodeAt(i);
     }
-    return Math.abs(hash).toString(36).substring(0, 12);
+    return Math.abs(hash >>> 0).toString(36).substring(0, 12);
 }
 
 // Store local video files in a map for later retrieval
@@ -3935,7 +3933,6 @@ async function applyRoomPlaybackState(nextState, options = {}) {
                 playerContainer.innerHTML = `<div style="width:100%;height:100%;background:#000;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;">
                     <div style="text-align:center;">
                         <div>⚠️ Local video not available</div>
-                        <div style="font-size:12px;margin-top:8px;">File hash: ${fileHash.substring(0, 8)}...</div>
                         <div style="font-size:12px;margin-top:4px;">Sync controls remain active</div>
                     </div>
                 </div>`;
