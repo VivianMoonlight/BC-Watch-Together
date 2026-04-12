@@ -18,6 +18,14 @@ export function isBilibiliUrl(input) {
     return /bilibili\.com|b23\.tv/i.test(String(input));
 }
 
+const DIRECT_MEDIA_URL_RE = /\.(mp4|webm|ogg|m3u8|mkv|mov|flv|mp3|m4a|aac|wav|flac|opus|oga|weba)(\?|#|$)/i;
+
+function isDirectMediaUrl(sourceUrl) {
+    const source = String(sourceUrl || '').trim();
+    if (!source) return false;
+    return DIRECT_MEDIA_URL_RE.test(source);
+}
+
 export function secondsToHms(seconds) {
     const total = Math.max(0, Math.floor(Number(seconds) || 0));
     const hours = Math.floor(total / 3600);
@@ -295,7 +303,7 @@ export async function hydrateBilibiliDuration(sourceUrl) {
         return Number.isFinite(duration) && duration > 0 ? Math.max(1, Math.floor(duration)) : null;
     }
 
-    const isVideoURL = /\.(mp4|webm|ogg|m3u8|mkv|mov|flv)(\?|#|$)/i.test(normalizedSource);
+    const isVideoURL = isDirectMediaUrl(normalizedSource);
     if (isVideoURL) {
         const duration = await fetchVideoDuration(normalizedSource);
         if (normalizedSource === state.bilibili.sourceUrl && Number.isFinite(duration) && duration > 0) {
@@ -321,7 +329,7 @@ export function computeBilibiliSyntheticState() {
         : ((nowMs() - state.bilibili.startedAt) / 1000) * state.bilibili.playbackRate;
     const sourceUrl = state.bilibili.sourceUrl || state.settings.mediaUrl || '';
     const isLocalVideo = sourceUrl.startsWith('local://');
-    const isVideoURL = /\.(mp4|webm|ogg|m3u8|mkv|mov|flv)(\?|#|$)/i.test(sourceUrl);
+    const isVideoURL = isDirectMediaUrl(sourceUrl);
     const youtubeId = parseYouTubeVideoId(sourceUrl);
     const bvid = state.bilibili.bvid || parseBilibiliBvid(sourceUrl) || '';
     const mediaKind = isLocalVideo ? 'local_video' : (youtubeId ? 'youtube' : (isVideoURL ? 'video' : 'bilibili'));

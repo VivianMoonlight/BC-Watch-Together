@@ -1,5 +1,9 @@
 # BC Listen Together Changelog
 
+## [0.4.0] - 2026-04-12
+
+### Changed
+- Add release notes here.
 ## [0.3.0] - 2026-04-12
 
 ### Added
