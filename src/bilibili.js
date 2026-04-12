@@ -1,4 +1,5 @@
 import { nowMs, notifyLocalChange, state } from './state.js';
+import { fetchYouTubeDurationByVideoId, isYouTubeUrl, normalizeYouTubeSourceUrl, parseYouTubeVideoId } from './youtube.js';
 
 export function parseBilibiliBvid(input) {
     if (!input) return null;
@@ -103,6 +104,10 @@ function readPageIndexFromSource(input) {
 export function normalizeBilibiliSourceUrl(input) {
     const text = String(input || '').trim();
     if (!text) return '';
+
+    if (isYouTubeUrl(text) || parseYouTubeVideoId(text)) {
+        return normalizeYouTubeSourceUrl(text);
+    }
 
     const bvid = parseBilibiliBvid(text);
     if (bvid) {
@@ -258,6 +263,15 @@ async function fetchBilibiliDuration(bvid, sourceUrl) {
 
 export async function hydrateBilibiliDuration(sourceUrl) {
     const normalizedSource = normalizeBilibiliSourceUrl(sourceUrl);
+    const youtubeId = parseYouTubeVideoId(normalizedSource);
+    if (youtubeId) {
+        const duration = await fetchYouTubeDurationByVideoId(youtubeId);
+        if (normalizedSource === state.bilibili.sourceUrl && Number.isFinite(duration) && duration > 0) {
+            state.bilibili.duration = Math.max(1, Math.floor(duration));
+        }
+        return Number.isFinite(duration) && duration > 0 ? Math.max(1, Math.floor(duration)) : null;
+    }
+
     const bvid = parseBilibiliBvid(normalizedSource);
     if (!bvid) return null;
 
@@ -273,11 +287,16 @@ export function computeBilibiliSyntheticState() {
     const elapsedSeconds = state.bilibili.paused || !state.bilibili.startedAt
         ? 0
         : ((nowMs() - state.bilibili.startedAt) / 1000) * state.bilibili.playbackRate;
+    const sourceUrl = state.bilibili.sourceUrl || state.settings.mediaUrl || '';
+    const youtubeId = parseYouTubeVideoId(sourceUrl);
+    const bvid = state.bilibili.bvid || parseBilibiliBvid(sourceUrl) || '';
+    const mediaKind = youtubeId ? 'youtube' : 'bilibili';
 
     return {
-        mediaKind: 'bilibili',
-        sourceUrl: state.bilibili.sourceUrl || state.settings.mediaUrl || '',
-        bvid: state.bilibili.bvid || parseBilibiliBvid(state.bilibili.sourceUrl || state.settings.mediaUrl || '') || '',
+        mediaKind,
+        sourceUrl,
+        bvid,
+        videoId: youtubeId || '',
         currentTime: state.bilibili.currentTime + elapsedSeconds,
         paused: state.bilibili.paused,
         playbackRate: state.bilibili.playbackRate,
@@ -309,7 +328,7 @@ export function setBilibiliSyntheticState(nextState, reason = 'sync') {
         : state.bilibili.playbackRate;
 
     state.bilibili.sourceUrl = sourceUrl;
-    state.bilibili.bvid = parseBilibiliBvid(sourceUrl) || state.bilibili.bvid;
+    state.bilibili.bvid = parseBilibiliBvid(sourceUrl) || '';
     state.bilibili.currentTime = Math.max(0, currentTime);
     if (duration !== null) {
         state.bilibili.duration = duration;

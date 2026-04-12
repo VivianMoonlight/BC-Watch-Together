@@ -197,7 +197,7 @@ export async function applyRemoteSync(envelope) {
         if (handled) return;
     }
 
-    if (payload.mediaKind === 'bilibili' || state.embedFrame) {
+    if (payload.mediaKind === 'bilibili' || payload.mediaKind === 'youtube' || state.embedFrame) {
         const applied = applyBilibiliRemoteSync({
             sourceUrl: payload.sourceUrl || state.settings.mediaUrl || state.bilibili.sourceUrl,
             currentTime: payload.currentTime,
@@ -207,7 +207,7 @@ export async function applyRemoteSync(envelope) {
         }, 'remote-sync');
 
         if (applied) {
-            logStatus(`Synced Bilibili from ${envelope.senderName || envelope.senderId}`);
+            logStatus(`Synced embedded media from ${envelope.senderName || envelope.senderId}`);
             return;
         }
     }

@@ -1,4 +1,5 @@
 import { createBilibiliEmbed, computeBilibiliSyntheticState, isBilibiliUrl, parseBilibiliBvid } from './bilibili.js';
+import { isYouTubeUrl, parseYouTubeVideoId } from './youtube.js';
 import { logStatus, nowMs, state } from './state.js';
 
 export function describeMediaElement(el, index) {
@@ -69,7 +70,7 @@ export function ensureMediaElement() {
     const mediaUrl = state.settings.mediaUrl && state.settings.mediaUrl.trim();
     if (!mediaUrl) return null;
 
-    if (isBilibiliUrl(mediaUrl) || parseBilibiliBvid(mediaUrl)) {
+    if (isBilibiliUrl(mediaUrl) || parseBilibiliBvid(mediaUrl) || isYouTubeUrl(mediaUrl) || parseYouTubeVideoId(mediaUrl)) {
         // Legacy floating Bilibili dock is deprecated; do not auto-create it.
         return null;
     }

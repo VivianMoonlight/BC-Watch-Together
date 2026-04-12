@@ -116,6 +116,266 @@
   function setLocalChangeNotifier(notifier) {
     state.localChangeNotifier = typeof notifier === "function" ? notifier : null;
   }
+  function parseYouTubeVideoId(input) {
+    if (!input) return null;
+    const text = String(input).trim();
+    if (!text) return null;
+    const directMatch = text.match(/^[a-zA-Z0-9_-]{11}$/);
+    if (directMatch) return directMatch[0];
+    try {
+      const url = new URL(text);
+      const host = url.hostname.toLowerCase();
+      if (host === "youtu.be") {
+        const id = url.pathname.replace(/^\//, "").split("/")[0];
+        return /^[a-zA-Z0-9_-]{11}$/.test(id) ? id : null;
+      }
+      if (host.endsWith("youtube.com") || host.endsWith("youtube-nocookie.com")) {
+        const byQuery = url.searchParams.get("v");
+        if (byQuery && /^[a-zA-Z0-9_-]{11}$/.test(byQuery)) return byQuery;
+        const parts = url.pathname.split("/").filter(Boolean);
+        const markerIndex = parts.findIndex((part) => ["embed", "shorts", "live", "v"].includes(part));
+        if (markerIndex >= 0) {
+          const id = parts[markerIndex + 1] || "";
+          return /^[a-zA-Z0-9_-]{11}$/.test(id) ? id : null;
+        }
+      }
+    } catch (error) {
+    }
+    const fuzzyMatch = text.match(/(?:v=|\/embed\/|\/shorts\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+    return fuzzyMatch ? fuzzyMatch[1] : null;
+  }
+  function isYouTubeUrl(input) {
+    if (!input) return false;
+    return /youtube\.com|youtu\.be|youtube-nocookie\.com/i.test(String(input));
+  }
+  function readStartSeconds(input) {
+    try {
+      const url = new URL(String(input || "").trim());
+      const raw = url.searchParams.get("t") || url.searchParams.get("start") || "";
+      if (!raw) return 1;
+      const seconds = Number(String(raw).replace(/s$/i, ""));
+      return Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : 1;
+    } catch (error) {
+      return 1;
+    }
+  }
+  function normalizeYouTubeSourceUrl(input) {
+    const text = String(input || "").trim();
+    if (!text) return "";
+    const id = parseYouTubeVideoId(text);
+    if (!id) return text;
+    const url = new URL("https://www.youtube.com/watch");
+    url.searchParams.set("v", id);
+    const start2 = readStartSeconds(text);
+    url.searchParams.set("t", String(Math.max(1, start2)));
+    return url.toString();
+  }
+  function buildYouTubePlayerUrl(input, options = {}) {
+    const { currentTime = 0, autoplay = false } = options;
+    const id = parseYouTubeVideoId(input);
+    if (!id) return null;
+    const targetTime = Math.max(1, Math.floor(Number(currentTime) || 0));
+    const params = new URLSearchParams({
+      autoplay: autoplay ? "1" : "0",
+      start: String(targetTime),
+      rel: "0",
+      modestbranding: "1",
+      playsinline: "1"
+    });
+    return `https://www.youtube.com/embed/${id}?${params.toString()}`;
+  }
+  function buildYouTubeWatchUrl(input, currentTime = 0, { autoplay = true } = {}) {
+    const id = parseYouTubeVideoId(input);
+    if (!id) return null;
+    const url = new URL("https://www.youtube.com/watch");
+    url.searchParams.set("v", id);
+    url.searchParams.set("t", String(Math.max(1, Math.floor(Number(currentTime) || 0))));
+    if (autoplay) {
+      url.searchParams.set("autoplay", "1");
+    }
+    return url.toString();
+  }
+  const YOUTUBE_METADATA_API = "https://yt.lemnoslife.com/noKey/videos";
+  const INVIDIOUS_INSTANCES_API = "https://api.invidious.io/instances.json?sort_by=health";
+  const INVIDIOUS_FALLBACK_HOSTS = [
+    "https://inv.thepixora.com",
+    "https://invidious.privacyredirect.com",
+    "https://invidious.jing.rocks"
+  ];
+  const titleByVideoId = /* @__PURE__ */ new Map();
+  const durationByVideoId = /* @__PURE__ */ new Map();
+  const metadataPromiseByVideoId = /* @__PURE__ */ new Map();
+  let invidiousHostsPromise = null;
+  async function fetchJsonWithTimeout(url, timeoutMs = 8e3) {
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    const timeoutId = controller ? window.setTimeout(() => controller.abort(), timeoutMs) : 0;
+    try {
+      const response = await fetch(url, {
+        method: "GET",
+        mode: "cors",
+        credentials: "omit",
+        signal: controller ? controller.signal : void 0
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      return await response.json();
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    }
+  }
+  function parseIso8601DurationToSeconds(input) {
+    const text = String(input || "").trim();
+    if (!text) return null;
+    const match = text.match(/^P(?:([0-9]+)D)?T?(?:([0-9]+)H)?(?:([0-9]+)M)?(?:([0-9]+)S)?$/i);
+    if (!match) return null;
+    const days = Number(match[1] || 0);
+    const hours = Number(match[2] || 0);
+    const minutes = Number(match[3] || 0);
+    const seconds = Number(match[4] || 0);
+    const total = days * 86400 + hours * 3600 + minutes * 60 + seconds;
+    return Number.isFinite(total) && total > 0 ? Math.floor(total) : null;
+  }
+  function readMetadataFromNoKeyPayload(payload) {
+    var _a, _b;
+    const item = Array.isArray(payload == null ? void 0 : payload.items) ? payload.items[0] : null;
+    if (!item) return { title: null, duration: null };
+    const title = String(((_a = item == null ? void 0 : item.snippet) == null ? void 0 : _a.title) || "").trim() || null;
+    const duration = parseIso8601DurationToSeconds((_b = item == null ? void 0 : item.contentDetails) == null ? void 0 : _b.duration);
+    return { title, duration };
+  }
+  async function fetchYouTubeTitleViaOEmbed(videoId) {
+    const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    const endpoint = `https://www.youtube.com/oembed?url=${encodeURIComponent(watchUrl)}&format=json`;
+    const response = await fetch(endpoint, {
+      method: "GET",
+      mode: "cors",
+      credentials: "omit"
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const payload = await response.json();
+    return String((payload == null ? void 0 : payload.title) || "").trim() || null;
+  }
+  async function getInvidiousHosts() {
+    if (!invidiousHostsPromise) {
+      invidiousHostsPromise = (async () => {
+        try {
+          const payload = await fetchJsonWithTimeout(INVIDIOUS_INSTANCES_API, 7e3);
+          if (!Array.isArray(payload)) {
+            return [...INVIDIOUS_FALLBACK_HOSTS];
+          }
+          const discovered = payload.map((row) => {
+            const host = row && row[0] ? String(row[0]) : "";
+            const meta = row && row[1] && typeof row[1] === "object" ? row[1] : null;
+            const isHttps = !!meta && meta.type === "https";
+            const hasApi = !!meta && meta.api === true;
+            if (!host || !isHttps || !hasApi) return "";
+            return `https://${host}`;
+          }).filter(Boolean);
+          const unique = Array.from(/* @__PURE__ */ new Set([...discovered, ...INVIDIOUS_FALLBACK_HOSTS]));
+          return unique.length ? unique : [...INVIDIOUS_FALLBACK_HOSTS];
+        } catch (error) {
+          return [...INVIDIOUS_FALLBACK_HOSTS];
+        }
+      })();
+    }
+    return invidiousHostsPromise;
+  }
+  async function fetchYouTubeMetadataViaInvidious(videoId) {
+    const hosts = await getInvidiousHosts();
+    const cappedHosts = hosts.slice(0, 6);
+    for (const host of cappedHosts) {
+      try {
+        const endpoint = `${host}/api/v1/videos/${encodeURIComponent(videoId)}`;
+        const payload = await fetchJsonWithTimeout(endpoint, 7e3);
+        const title = String((payload == null ? void 0 : payload.title) || "").trim() || null;
+        const duration = Number(payload == null ? void 0 : payload.lengthSeconds);
+        return {
+          title,
+          duration: Number.isFinite(duration) && duration > 0 ? Math.floor(duration) : null
+        };
+      } catch (error) {
+      }
+    }
+    return { title: null, duration: null };
+  }
+  async function fetchYouTubeMetadataByVideoId(input) {
+    const videoId = parseYouTubeVideoId(input);
+    if (!videoId) {
+      return { title: null, duration: null };
+    }
+    if (titleByVideoId.has(videoId) && durationByVideoId.has(videoId)) {
+      return {
+        title: titleByVideoId.get(videoId),
+        duration: durationByVideoId.get(videoId)
+      };
+    }
+    if (metadataPromiseByVideoId.has(videoId)) {
+      return metadataPromiseByVideoId.get(videoId);
+    }
+    const task = (async () => {
+      let title = titleByVideoId.get(videoId) || null;
+      let duration = durationByVideoId.get(videoId) || null;
+      try {
+        const endpoint = `${YOUTUBE_METADATA_API}?part=snippet,contentDetails&id=${encodeURIComponent(videoId)}`;
+        const payload = await fetchJsonWithTimeout(endpoint, 7e3);
+        const parsed = readMetadataFromNoKeyPayload(payload);
+        if (parsed.title) title = parsed.title;
+        if (Number.isFinite(parsed.duration) && parsed.duration > 0) duration = parsed.duration;
+      } catch (error) {
+      }
+      if (!title || !duration) {
+        try {
+          const fallback = await fetchYouTubeMetadataViaInvidious(videoId);
+          if (!title && fallback.title) title = fallback.title;
+          if ((!duration || duration <= 0) && Number.isFinite(fallback.duration) && fallback.duration > 0) {
+            duration = Math.floor(fallback.duration);
+          }
+        } catch (error) {
+        }
+      }
+      if (!title) {
+        try {
+          title = await fetchYouTubeTitleViaOEmbed(videoId);
+        } catch (error) {
+        }
+      }
+      if (title) titleByVideoId.set(videoId, title);
+      if (Number.isFinite(duration) && duration > 0) durationByVideoId.set(videoId, Math.floor(duration));
+      return {
+        title: title || null,
+        duration: Number.isFinite(duration) && duration > 0 ? Math.floor(duration) : null
+      };
+    })();
+    metadataPromiseByVideoId.set(videoId, task);
+    try {
+      return await task;
+    } finally {
+      metadataPromiseByVideoId.delete(videoId);
+    }
+  }
+  async function fetchYouTubeTitleByVideoId(input) {
+    const videoId = parseYouTubeVideoId(input);
+    if (!videoId) return "";
+    if (titleByVideoId.has(videoId)) {
+      return titleByVideoId.get(videoId);
+    }
+    const metadata = await fetchYouTubeMetadataByVideoId(videoId);
+    return metadata.title || "";
+  }
+  async function fetchYouTubeDurationByVideoId(input) {
+    const videoId = parseYouTubeVideoId(input);
+    if (!videoId) return null;
+    if (durationByVideoId.has(videoId)) {
+      return durationByVideoId.get(videoId);
+    }
+    const metadata = await fetchYouTubeMetadataByVideoId(videoId);
+    return Number.isFinite(metadata.duration) && metadata.duration > 0 ? Math.floor(metadata.duration) : null;
+  }
   function parseBilibiliBvid(input) {
     if (!input) return null;
     const text = String(input).trim();
@@ -206,6 +466,9 @@
   function normalizeBilibiliSourceUrl(input) {
     const text = String(input || "").trim();
     if (!text) return "";
+    if (isYouTubeUrl(text) || parseYouTubeVideoId(text)) {
+      return normalizeYouTubeSourceUrl(text);
+    }
     const bvid = parseBilibiliBvid(text);
     if (bvid) {
       const page = readPageIndexFromSource(text);
@@ -336,6 +599,14 @@
   }
   async function hydrateBilibiliDuration(sourceUrl) {
     const normalizedSource = normalizeBilibiliSourceUrl(sourceUrl);
+    const youtubeId = parseYouTubeVideoId(normalizedSource);
+    if (youtubeId) {
+      const duration2 = await fetchYouTubeDurationByVideoId(youtubeId);
+      if (normalizedSource === state.bilibili.sourceUrl && Number.isFinite(duration2) && duration2 > 0) {
+        state.bilibili.duration = Math.max(1, Math.floor(duration2));
+      }
+      return Number.isFinite(duration2) && duration2 > 0 ? Math.max(1, Math.floor(duration2)) : null;
+    }
     const bvid = parseBilibiliBvid(normalizedSource);
     if (!bvid) return null;
     const duration = await fetchBilibiliDuration(bvid, normalizedSource);
@@ -346,10 +617,15 @@
   }
   function computeBilibiliSyntheticState() {
     const elapsedSeconds = state.bilibili.paused || !state.bilibili.startedAt ? 0 : (nowMs() - state.bilibili.startedAt) / 1e3 * state.bilibili.playbackRate;
+    const sourceUrl = state.bilibili.sourceUrl || state.settings.mediaUrl || "";
+    const youtubeId = parseYouTubeVideoId(sourceUrl);
+    const bvid = state.bilibili.bvid || parseBilibiliBvid(sourceUrl) || "";
+    const mediaKind = youtubeId ? "youtube" : "bilibili";
     return {
-      mediaKind: "bilibili",
-      sourceUrl: state.bilibili.sourceUrl || state.settings.mediaUrl || "",
-      bvid: state.bilibili.bvid || parseBilibiliBvid(state.bilibili.sourceUrl || state.settings.mediaUrl || "") || "",
+      mediaKind,
+      sourceUrl,
+      bvid,
+      videoId: youtubeId || "",
       currentTime: state.bilibili.currentTime + elapsedSeconds,
       paused: state.bilibili.paused,
       playbackRate: state.bilibili.playbackRate,
@@ -371,7 +647,7 @@
     const paused = typeof nextState.paused === "boolean" ? nextState.paused : state.bilibili.paused;
     const playbackRate = Number.isFinite(Number(nextState.playbackRate)) && Number(nextState.playbackRate) > 0 ? Number(nextState.playbackRate) : state.bilibili.playbackRate;
     state.bilibili.sourceUrl = sourceUrl;
-    state.bilibili.bvid = parseBilibiliBvid(sourceUrl) || state.bilibili.bvid;
+    state.bilibili.bvid = parseBilibiliBvid(sourceUrl) || "";
     state.bilibili.currentTime = Math.max(0, currentTime);
     if (duration !== null) {
       state.bilibili.duration = duration;
@@ -488,7 +764,7 @@
     if (state.mediaEl) return state.mediaEl;
     const mediaUrl = state.settings.mediaUrl && state.settings.mediaUrl.trim();
     if (!mediaUrl) return null;
-    if (isBilibiliUrl(mediaUrl) || parseBilibiliBvid(mediaUrl)) {
+    if (isBilibiliUrl(mediaUrl) || parseBilibiliBvid(mediaUrl) || isYouTubeUrl(mediaUrl) || parseYouTubeVideoId(mediaUrl)) {
       return null;
     }
     const created = document.createElement(mediaUrl.match(/\.(mp4|webm|ogg)(\?|#|$)/i) ? "video" : "audio");
@@ -701,7 +977,7 @@
       const handled = await state.onRemoteRoomControl(payload, envelope);
       if (handled) return;
     }
-    if (payload.mediaKind === "bilibili" || state.embedFrame) {
+    if (payload.mediaKind === "bilibili" || payload.mediaKind === "youtube" || state.embedFrame) {
       const applied = applyBilibiliRemoteSync({
         sourceUrl: payload.sourceUrl || state.settings.mediaUrl || state.bilibili.sourceUrl,
         currentTime: payload.currentTime,
@@ -710,7 +986,7 @@
         playbackRate: payload.playbackRate
       }, "remote-sync");
       if (applied) {
-        logStatus(`Synced Bilibili from ${envelope.senderName || envelope.senderId}`);
+        logStatus(`Synced embedded media from ${envelope.senderName || envelope.senderId}`);
         return;
       }
     }
@@ -1564,6 +1840,8 @@
   };
   const HQ_TAB_REMOTE_DRIFT_THRESHOLD_SECONDS = 12;
   const HQ_TAB_REMOTE_SYNC_COOLDOWN_MS = 1e4;
+  const HQ_TAB_WINDOW_NAME = "bclt_hq_player";
+  const HQ_TAB_WINDOW_FEATURES = "width=1280,height=720,left=100,top=100,resizable=yes,scrollbars=yes";
   const PLAYLIST_REQUEST_RETRY_DELAY_MS = 1500;
   const PLAYLIST_REQUEST_RETRY_MAX_ATTEMPTS = 5;
   let playlistSnapshotPending = false;
@@ -1946,22 +2224,39 @@
   }
   function closeHighQualityPlaybackTab(options = {}) {
     const { destroySession = false, blankUrl = "about:blank" } = options;
-    if (!highQualityPlaybackTab) return;
-    try {
-      if (highQualityPlaybackTab.closed) {
-        highQualityPlaybackTab = null;
-        return;
+    const tryRetargetByName = () => {
+      try {
+        return window.open(blankUrl, HQ_TAB_WINDOW_NAME, HQ_TAB_WINDOW_FEATURES);
+      } catch (error) {
+        return null;
       }
+    };
+    let handle = highQualityPlaybackTab;
+    if (!handle) {
+      handle = tryRetargetByName();
+    }
+    if (!handle) {
+      highQualityPlaybackTab = null;
+      return;
+    }
+    try {
       if (destroySession) {
-        if (typeof highQualityPlaybackTab.close === "function") {
-          highQualityPlaybackTab.close();
+        const target = tryRetargetByName() || handle;
+        if (target && typeof target.close === "function") {
+          target.close();
         }
         highQualityPlaybackTab = null;
         return;
       }
-      if (highQualityPlaybackTab.location) {
-        highQualityPlaybackTab.location.href = blankUrl;
+      try {
+        handle.location.href = blankUrl;
+      } catch (error) {
+        const retargeted = tryRetargetByName();
+        if (retargeted) {
+          handle = retargeted;
+        }
       }
+      highQualityPlaybackTab = handle;
       try {
         window.focus();
       } catch (focusError) {
@@ -1984,6 +2279,12 @@
   function normalizeBilibiliSourceForSync(sourceUrl) {
     const source = String(sourceUrl || "").trim();
     if (!source) return "";
+    const youtubeId = parseYouTubeVideoId(source);
+    if (youtubeId || isYouTubeUrl(source)) {
+      const normalized = normalizeYouTubeSourceUrl(source);
+      const normalizedId = parseYouTubeVideoId(normalized) || youtubeId;
+      return normalizedId ? `yt:${normalizedId}:t1` : normalized;
+    }
     const bvid = parseBilibiliBvid(source);
     if (bvid) {
       return `bvid:${String(bvid)}:p${readBilibiliPageFromUrl(source)}:t1`;
@@ -1998,9 +2299,19 @@
       return source;
     }
   }
+  function detectMediaKind(sourceUrl) {
+    const source = String(sourceUrl || "").trim();
+    if (!source) return "bilibili";
+    if (parseYouTubeVideoId(source) || isYouTubeUrl(source)) return "youtube";
+    return "bilibili";
+  }
   function buildBilibiliWatchUrl(sourceUrl, currentTime = 0, { autoplay = true } = {}) {
     const source = String(sourceUrl || "").trim();
     if (!source) return null;
+    const youtubeWatchUrl = buildYouTubeWatchUrl(source, currentTime, { autoplay });
+    if (youtubeWatchUrl) {
+      return youtubeWatchUrl;
+    }
     const bvid = parseBilibiliBvid(source);
     const baseUrl = bvid ? `https://www.bilibili.com/video/${bvid}` : source;
     try {
@@ -2028,8 +2339,10 @@
       return { ok: false, message: msg };
     }
     console.log("[BCLT] Watch URL built:", watchUrl);
+    let hadExistingTab = false;
     try {
       if (highQualityPlaybackTab && !highQualityPlaybackTab.closed) {
+        hadExistingTab = true;
         console.log("[BCLT] Popup window exists, updating location to new time...");
         highQualityPlaybackTab.location.href = watchUrl;
         console.log("[BCLT] Popup navigated to:", watchUrl);
@@ -2039,13 +2352,13 @@
       console.warn("[BCLT] Failed to update existing popup location, will open new window:", error.message);
       highQualityPlaybackTab = null;
     }
-    console.log("[BCLT] Opening new popup window...");
+    console.log("[BCLT] Opening or retargeting popup window...");
     let openedTab = null;
     try {
       openedTab = window.open(
         watchUrl,
-        "bilibili_player_" + Date.now(),
-        "width=1280,height=720,left=100,top=100,resizable=yes,scrollbars=yes"
+        HQ_TAB_WINDOW_NAME,
+        HQ_TAB_WINDOW_FEATURES
       );
       console.log("[BCLT] window.open returned:", openedTab, "type:", typeof openedTab);
       if (openedTab === null) {
@@ -2065,7 +2378,7 @@
       return { ok: false, message: `Failed to open window: ${error.message}` };
     }
     console.log("[BCLT] updateOrOpenHighQualityPlaybackTab completed for URL:", watchUrl);
-    return { ok: true, watchUrl, action: "opened" };
+    return { ok: true, watchUrl, action: hadExistingTab ? "updated" : "opened" };
   }
   function renderHighQualityPlaceholder() {
     var _a;
@@ -2076,14 +2389,20 @@
   function extractCurrentBvid() {
     const currentSource = String(computeBilibiliSyntheticState().sourceUrl || state.bilibili.sourceUrl || "");
     const currentBvidMatch = currentSource.match(/(BV[0-9A-Za-z]{10,})/i);
-    return currentBvidMatch ? currentBvidMatch[1].toUpperCase() : "";
+    if (currentBvidMatch) return `bili:${currentBvidMatch[1].toUpperCase()}`;
+    const youtubeId = parseYouTubeVideoId(currentSource);
+    if (youtubeId) return `yt:${youtubeId}`;
+    return "";
   }
   function getCurrentPlayingVideoIndex() {
-    var _a;
     const currentBvid = extractCurrentBvid();
     if (!currentBvid) return -1;
     for (let index = activeVideos.length - 1; index >= 0; index -= 1) {
-      if (String(((_a = activeVideos[index]) == null ? void 0 : _a.bvid) || "").toUpperCase() === currentBvid) {
+      const candidate = activeVideos[index];
+      const candidateBvid = String((candidate == null ? void 0 : candidate.bvid) || "").toUpperCase();
+      const candidateYoutubeId = parseYouTubeVideoId((candidate == null ? void 0 : candidate.url) || (candidate == null ? void 0 : candidate.sourceUrl) || "") || "";
+      const candidateKey = candidateBvid.startsWith("BV") ? `bili:${candidateBvid}` : candidateYoutubeId ? `yt:${candidateYoutubeId}` : "";
+      if (candidateKey === currentBvid) {
         return index;
       }
     }
@@ -2231,7 +2550,7 @@
     autoAdvanceInFlight = true;
     autoAdvanceTriggerToken = token;
     try {
-      await playVideo(nextVideo.bvid, {
+      await playVideo(nextVideo, {
         publish: true,
         reason: "playlist-auto-advance",
         statusHint: `${t("auto_mode_prefix")}: ${getPlaybackModeLabel(state.settings.playbackMode)}`
@@ -2252,19 +2571,26 @@
     windowInstance.clampPosition();
   }
   function normalizeActiveVideo(rawVideo) {
-    if (!rawVideo || !rawVideo.bvid) return null;
-    const bvid = String(rawVideo.bvid).trim();
-    if (!/^BV[0-9A-Za-z]{10,}$/i.test(bvid)) return null;
+    if (!rawVideo) return null;
+    const inputUrl = String(rawVideo.url || rawVideo.sourceUrl || "").trim();
+    const explicitKind = String(rawVideo.mediaKind || "").trim().toLowerCase();
+    const bvidCandidate = String(rawVideo.bvid || "").trim();
+    const youtubeIdFromUrl = parseYouTubeVideoId(inputUrl);
+    const bilibiliIdFromUrl = parseBilibiliBvid(inputUrl);
+    const mediaKind = explicitKind || detectMediaKind(inputUrl || bvidCandidate);
+    const mediaId = mediaKind === "youtube" ? youtubeIdFromUrl || parseYouTubeVideoId(bvidCandidate) || "" : parseBilibiliBvid(bvidCandidate) || bilibiliIdFromUrl || bvidCandidate;
+    if (!mediaId) return null;
     const sender = String(rawVideo.senderName || rawVideo.sender || "Unknown").trim() || "Unknown";
-    const title = sanitizeBilibiliText(rawVideo.title || rawVideo.videoTitle || bvid);
+    const title = sanitizeBilibiliText(rawVideo.title || rawVideo.videoTitle || mediaId);
     const shareId = rawVideo.shareId ? String(rawVideo.shareId) : "";
     const timestamp = Number.isFinite(Number(rawVideo.timestamp)) ? Number(rawVideo.timestamp) : Date.now();
-    const url = String(rawVideo.url || `https://www.bilibili.com/video/${bvid}`).trim();
+    const url = String(rawVideo.url || (mediaKind === "youtube" ? `https://www.youtube.com/watch?v=${mediaId}` : `https://www.bilibili.com/video/${mediaId}`)).trim();
     return {
       shareId,
       sender,
       title,
-      bvid,
+      bvid: mediaId,
+      mediaKind,
       url,
       timestamp
     };
@@ -2366,7 +2692,8 @@
     const currentTitle = String(video.title || "").trim();
     if (currentTitle && currentTitle !== video.bvid) return;
     try {
-      const title = await fetchBilibiliVideoTitleByBvid(video.bvid);
+      const mediaKind = String(video.mediaKind || "").trim().toLowerCase() || detectMediaKind(video.url || video.bvid);
+      const title = mediaKind === "youtube" ? await fetchYouTubeTitleByVideoId(video.bvid) : await fetchBilibiliVideoTitleByBvid(video.bvid);
       if (!title || title === video.title) return;
       video.title = title;
       updateVideoList();
@@ -2383,13 +2710,14 @@
       ...preferNext ? prevVideo : nextVideo,
       ...preferNext ? nextVideo : prevVideo,
       bvid: String(nextVideo.bvid || prevVideo.bvid || "").trim(),
+      mediaKind: String(nextVideo.mediaKind || prevVideo.mediaKind || "").trim() || detectMediaKind(nextVideo.url || prevVideo.url),
       // Keep a shareId when either side has one so remove actions remain addressable.
       shareId: String(nextVideo.shareId || prevVideo.shareId || ""),
       timestamp: Math.max(nextTime, prevTime, Date.now())
     };
   }
   function mergeActiveVideos(videos) {
-    const byBvid = /* @__PURE__ */ new Map();
+    const byMediaKey = /* @__PURE__ */ new Map();
     const queue = [
       ...Array.isArray(videos) ? videos : [],
       ...activeVideos
@@ -2397,11 +2725,11 @@
     queue.forEach((video) => {
       const normalized = normalizeActiveVideo(video);
       if (!normalized) return;
-      const bvidKey = String(normalized.bvid || "").toUpperCase();
-      const prev = byBvid.get(bvidKey);
-      byBvid.set(bvidKey, choosePreferredVideo(normalized, prev));
+      const mediaKey = `${normalized.mediaKind || detectMediaKind(normalized.url)}:${String(normalized.bvid || "").toUpperCase()}`;
+      const prev = byMediaKey.get(mediaKey);
+      byMediaKey.set(mediaKey, choosePreferredVideo(normalized, prev));
     });
-    activeVideos = Array.from(byBvid.values()).sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0));
+    activeVideos = Array.from(byMediaKey.values()).sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0));
   }
   function buildPlaylistStatePayload(targetMemberId = "") {
     const syncEnabled = state.settings.syncPlaybackProgress !== false;
@@ -4169,7 +4497,7 @@
         updatePlaybackUi(t("no_next_video"));
         return;
       }
-      await playVideo(nextVideo.bvid, {
+      await playVideo(nextVideo, {
         publish: true,
         reason: "host-skip-next",
         statusHint: `${t("skip_mode_prefix")}: ${getPlaybackModeLabel(state.settings.playbackMode)}`
@@ -4309,31 +4637,40 @@
     try {
       const sourceText = typeof bilibiliBvId === "string" ? bilibiliBvId : String((bilibiliBvId == null ? void 0 : bilibiliBvId.url) || (bilibiliBvId == null ? void 0 : bilibiliBvId.bvid) || "");
       const inputBvid = typeof bilibiliBvId === "object" && (bilibiliBvId == null ? void 0 : bilibiliBvId.bvid) ? String(bilibiliBvId.bvid) : sourceText;
-      let bvid = inputBvid;
-      if (sourceText.includes("bilibili.com") || sourceText.includes("b23.tv")) {
+      const youtubeId = parseYouTubeVideoId(sourceText || inputBvid);
+      const mediaKind = youtubeId ? "youtube" : "bilibili";
+      let mediaId = inputBvid;
+      if (mediaKind === "youtube") {
+        mediaId = youtubeId;
+      } else if (sourceText.includes("bilibili.com") || sourceText.includes("b23.tv")) {
         const match = sourceText.match(/(BV[0-9A-Za-z]{10,})/i);
         if (!match) throw new Error("Cannot extract BV ID from URL");
-        bvid = match[1];
+        mediaId = match[1];
       }
-      if (!/^BV[0-9A-Za-z]{10,}$/i.test(bvid)) {
+      if (mediaKind === "bilibili" && !/^BV[0-9A-Za-z]{10,}$/i.test(mediaId)) {
         throw new Error("Invalid BV ID format");
       }
+      if (mediaKind === "youtube" && !/^[a-zA-Z0-9_-]{11}$/.test(mediaId)) {
+        throw new Error("Invalid video ID format");
+      }
       const titleCandidate = typeof bilibiliBvId === "object" && (bilibiliBvId == null ? void 0 : bilibiliBvId.title) ? sanitizeBilibiliText(bilibiliBvId.title) : "";
-      const title = titleCandidate || await fetchBilibiliVideoTitleByBvid(bvid);
-      const videoUrl = typeof bilibiliBvId === "object" && (bilibiliBvId == null ? void 0 : bilibiliBvId.url) ? String(bilibiliBvId.url) : `https://www.bilibili.com/video/${bvid}`;
+      const title = titleCandidate || (mediaKind === "bilibili" ? await fetchBilibiliVideoTitleByBvid(mediaId) : await fetchYouTubeTitleByVideoId(mediaId) || `Video ${mediaId}`);
+      const videoUrl = typeof bilibiliBvId === "object" && (bilibiliBvId == null ? void 0 : bilibiliBvId.url) ? String(bilibiliBvId.url) : mediaKind === "youtube" ? normalizeYouTubeSourceUrl(`https://www.youtube.com/watch?v=${mediaId}`) : `https://www.bilibili.com/video/${mediaId}`;
       const senderName = effectiveDisplayName();
       const shareId = `${memberId()}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       mergeActiveVideos([{
         shareId,
         sender: senderName,
         title,
-        bvid,
+        bvid: mediaId,
+        mediaKind,
         url: videoUrl,
         timestamp: Date.now()
       }]);
       await publish("video_shared", {
         shareId,
-        bvid,
+        bvid: mediaId,
+        mediaKind,
         title,
         url: videoUrl,
         senderName
@@ -4409,7 +4746,7 @@
         main.classList.toggle("sync-locked", syncLocked);
         main.onclick = () => {
           if (isSyncControlLocked()) return;
-          playVideo(video.bvid, {
+          playVideo(video, {
             publish: state.settings.isHost,
             reason: "video-select"
           });
@@ -4443,7 +4780,7 @@
             const fallbackIndex = Math.min(Math.max(targetIndexBeforeRemove, 0), activeVideos.length - 1);
             const nextVideo = activeVideos[fallbackIndex];
             if (nextVideo && nextVideo.bvid) {
-              await playVideo(nextVideo.bvid, {
+              await playVideo(nextVideo, {
                 publish: true,
                 reason: "playlist-delete-switch",
                 statusHint: t("current_deleted_switched")
@@ -4539,7 +4876,11 @@
     const playerContainer = (_a = windowInstance == null ? void 0 : windowInstance.content) == null ? void 0 : _a.querySelector("#bclt-player-container");
     const iframeEl = (_b = windowInstance == null ? void 0 : windowInstance.content) == null ? void 0 : _b.querySelector("#bclt-player-container iframe");
     if (!playerContainer) return false;
-    const highQualityMode = isHighQualityTabModeEnabled();
+    const mediaKind = detectMediaKind(sourceUrl);
+    const highQualityMode = isHighQualityTabModeEnabled() && mediaKind !== "youtube";
+    if (mediaKind === "youtube") {
+      closeHighQualityPlaybackTab();
+    }
     const thresholdSeconds = Math.max(0.1, Number(state.settings.driftThresholdMs || 800) / 1e3);
     const driftSeconds = Math.abs(targetTime - current.currentTime);
     const sourceChanged = normalizeBilibiliSourceForSync(sourceUrl) !== normalizeBilibiliSourceForSync(current.sourceUrl);
@@ -4594,7 +4935,7 @@
             updatePlaybackUi(result.message || "HQ tab operation failed");
           } else {
             const actionText = result.action === "updated" ? "Updated" : "Opened";
-            updatePlaybackUi(`${actionText} in Bilibili: ${result.watchUrl.split("/").slice(-1)[0]}`);
+            updatePlaybackUi(`${actionText} playback tab: ${result.watchUrl.split("/").slice(-1)[0]}`);
             highQualityTabLastSyncAt = Date.now();
           }
         }
@@ -4603,7 +4944,10 @@
       }
     } else if (shouldReload) {
       closeHighQualityPlaybackTab();
-      const playerUrl = buildBilibiliPlayerUrl(sourceUrl, {
+      const playerUrl = detectMediaKind(sourceUrl) === "youtube" ? buildYouTubePlayerUrl(sourceUrl, {
+        currentTime: targetTime,
+        autoplay: !incomingPaused
+      }) : buildBilibiliPlayerUrl(sourceUrl, {
         currentTime: targetTime,
         autoplay: !incomingPaused
       });
@@ -4650,8 +4994,12 @@
       }, { publishState: true, reason: "local-seek", forceReload: true });
     }
   }
-  async function playVideo(bvid, options = {}) {
-    const sourceUrl = `https://www.bilibili.com/video/${bvid}?t=1`;
+  async function playVideo(target, options = {}) {
+    const sourceText = typeof target === "string" ? target : String((target == null ? void 0 : target.url) || (target == null ? void 0 : target.sourceUrl) || (target == null ? void 0 : target.bvid) || "");
+    const youtubeId = parseYouTubeVideoId(sourceText);
+    const bvid = parseBilibiliBvid(sourceText);
+    const sourceUrl = youtubeId ? normalizeYouTubeSourceUrl(sourceText || `https://www.youtube.com/watch?v=${youtubeId}`) : bvid ? `https://www.bilibili.com/video/${bvid}?t=1` : sourceText;
+    if (!sourceUrl) return;
     await applyRoomPlaybackState({
       sourceUrl,
       currentTime: 0,
@@ -4731,9 +5079,9 @@
       if (state.settings.syncPlaybackProgress === false || payload.syncProgress === false) {
         return true;
       }
-      const sourceUrl = payload.sourceUrl || payload.src || (payload.bvid ? `https://www.bilibili.com/video/${payload.bvid}` : "");
-      const isBilibili = payload.mediaKind === "bilibili" || /bilibili\.com|b23\.tv|BV[0-9A-Za-z]{10,}/i.test(sourceUrl);
-      if (!isBilibili || !sourceUrl) return false;
+      const sourceUrl = payload.sourceUrl || payload.src || (payload.mediaKind === "youtube" && payload.videoId ? `https://www.youtube.com/watch?v=${payload.videoId}` : "") || (payload.bvid ? `https://www.bilibili.com/video/${payload.bvid}` : "");
+      const isSupported = /bilibili\.com|b23\.tv|BV[0-9A-Za-z]{10,}/i.test(sourceUrl) || isYouTubeUrl(sourceUrl) || !!parseYouTubeVideoId(sourceUrl);
+      if (!isSupported || !sourceUrl) return false;
       const localSyncProgress = state.settings.syncPlaybackProgress !== false;
       const payloadSyncProgress = payload.syncProgress !== false;
       const shouldSyncProgress = localSyncProgress && payloadSyncProgress;
