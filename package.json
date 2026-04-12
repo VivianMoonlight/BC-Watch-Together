@@ -1,11 +1,13 @@
 {
   "name": "bc-watch-together",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "scripts": {
     "clean": "node scripts/clean.mjs",
     "check:release": "node scripts/verify-release.mjs",
+    "release:prepare": "node scripts/prepare-release.mjs",
+    "release:local": "node scripts/release-local.mjs",
     "dev": "vite",
     "build": "run-s check:release build:bundle",
     "build:bundle": "vite build",

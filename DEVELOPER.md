@@ -62,12 +62,18 @@ npm run pack:local
 ```
 
 此命令完整执行以下操作：
-- 清理旧的构建工件 (`dist/`, `release/`)
+- 清理旧的构建工件 (`dist/`)
 - 校验版本指定的一致性
 - 构建生产用户脚本
 - 将脚本发布到仓库根目录 (`BCWatchTogether.user.js`)
 - 将发布工件打包到 `release/vX.Y.Z`
 - 生成 `SHA256SUMS.txt` 和 `release-manifest.json`
+
+如果需要强制清理整个 `release/` 目录，可手动执行：
+
+```bash
+$env:CLEAN_RELEASE="1"; npm run clean
+```
 
 ### 版本管理规则
 
@@ -79,6 +85,25 @@ npm run pack:local
 | `loader.user.js` | `@version` |
 | `CHANGELOG_UI.md` | 必须包含 `## [X.Y.Z] - ...` 标题 |
 
+推荐使用自动化命令一次性完成版本同步：
+
+```bash
+npm run release:prepare -- 0.3.0
+```
+
+该命令会自动：
+- 更新 `package.json` 的 `version`
+- 更新 `loader.user.js` 的 `@version`
+- 若 `CHANGELOG_UI.md` 缺少对应版本标题则自动插入模板
+
+也可以直接执行一键本地发布（可选传入版本号）：
+
+```bash
+npm run release:local -- 0.3.0
+```
+
+该命令会先执行 `release:prepare`（仅当提供版本号时），再执行完整 `pack:local` 流程。
+
 ### 发布工作流（手动）
 
 打包完成后，由您手动完成以下步骤：
@@ -86,14 +111,14 @@ npm run pack:local
 ```bash
 # 提交所有更改
 git add .
-git commit -m "release: v0.2.0"
+git commit -m "release: v0.3.0"
 
 # 创建版本标签
-git tag v0.2.0
+git tag v0.3.0
 
 # 推送到 GitHub（使用您配置的身份）
 git push origin main
-git push origin v0.2.0
+git push origin v0.3.0
 
 # 手动上传 release/ 目录中的文件到 GitHub Release
 ```

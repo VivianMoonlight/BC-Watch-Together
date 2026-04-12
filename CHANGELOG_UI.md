@@ -1,5 +1,14 @@
 # BC Listen Together Changelog
 
+## [0.3.0] - 2026-04-12
+
+### Added
+- New automated release preparation script to sync version fields across release files.
+- New one-command local release flow with optional target version argument.
+
+### Changed
+- Optimized the version upgrade workflow to reduce manual editing steps.
+
 ## [0.2.0] - 2026-02-13
 
 ### Added
